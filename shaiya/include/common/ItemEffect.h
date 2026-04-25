@@ -93,6 +93,27 @@ namespace shaiya
         TyrosStone,
         AbsoluteRecreationRune,
         NpcRecall = 200,
-        Item500 = 210
+        Item500 = 210,
+        HealthRecreationRune = 220,
+        ManaRecreationRune,
+        StaminaRecreationRune,
+        StrPerfectRecreationRune,
+        DexPerfectRecreationRune,
+        IntPerfectRecreationRune,
+        WisPerfectRecreationRune,
+        RecPerfectRecreationRune,
+        LucPerfectRecreationRune,
+        HealthPerfectRecreationRune,
+        ManaPerfectRecreationRune,
+        StaminaPerfectRecreationRune,
+        StrRecreationRemovalRune,
+        DexRecreationRemovalRune,
+        IntRecreationRemovalRune,
+        WisRecreationRemovalRune,
+        RecRecreationRemovalRune,
+        LucRecreationRemovalRune,
+        HealthRecreationRemovalRune,
+        ManaRecreationRemovalRune,
+        StaminaRecreationRemovalRune
     };
 }

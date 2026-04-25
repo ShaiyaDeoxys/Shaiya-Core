@@ -2,6 +2,7 @@
 
 void Main()
 {
+    hook::blacksmith();
     hook::camera_limit();
     hook::character();
     hook::command();

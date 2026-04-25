@@ -13,21 +13,24 @@ namespace shaiya
     #pragma pack(push, 1)
     struct CParty : SNode
     {
+        static constexpr int MaxUsers = 150;
+
         uint32_t id;                 //0x08
         int32_t bossIndex;           //0x0C
         int32_t userCount;           //0x10
         // 0x14
-        Array<PartyUser, 30> users;  //0x14
-        DivType divType;             //0x104
-        int32_t divSeq;              //0x108
-        int32_t maxUserLevel;        //0x10C
-        int32_t subBossIndex;        //0x110
-        bool isUnion;                //0x114
-        bool isAutoJoin;             //0x115
+        Array<PartyUser, MaxUsers> users;  //0x14
+        PAD(4);
+        DivType divType;                   //0x4C8
+        int32_t divSeq;                    //0x4CC
+        int32_t maxUserLevel;              //0x4D0
+        int32_t subBossIndex;              //0x4D4
+        bool isUnion;                      //0x4D8
+        bool isAutoJoin;                   //0x4D9
         PAD(2);
-        CRITICAL_SECTION cs;         //0x118
+        CRITICAL_SECTION cs;               //0x4DC
         PAD(32);
-        // 0x150
+        // 0x514
 
         static CUser* FindUser(CParty* party/*edi*/, unsigned objectId);
         static bool IsPartyBoss(CParty* party/*esi*/, CUser* user);
@@ -40,5 +43,5 @@ namespace shaiya
     };
     #pragma pack(pop)
 
-    static_assert(sizeof(CParty) == 0x150);
+    static_assert(sizeof(CParty) == 0x514);
 }

@@ -22,11 +22,12 @@ int util::detour(void* addr, void* dest, size_t size)
     if (!VirtualProtect(addr, size, PAGE_EXECUTE_READWRITE, &protect))
         return 0;
 
-    auto address = (size_t(dest) - size_t(addr)) - sizeof(instruction);
+    auto address = (std::uintptr_t(dest) - std::uintptr_t(addr)) - sizeof(instruction);
     instruction.operand = address;
 
     std::memset(addr, 0x90, size);
     std::memcpy(addr, &instruction, sizeof(instruction));
+    FlushInstructionCache(GetCurrentProcess(), addr, size);
     return VirtualProtect(addr, size, protect, &protect);
 }
 
@@ -39,10 +40,10 @@ int util::read_memory(void* addr, void* dest, size_t size)
     if (!VirtualProtect(addr, size, PAGE_EXECUTE_READWRITE, &protect))
         return 0;
 
-    if (!ReadProcessMemory(GetCurrentProcess(), addr, dest, size, nullptr))
-        return 0;
+    auto success = ReadProcessMemory(GetCurrentProcess(), addr, dest, size, nullptr);
 
-    return VirtualProtect(addr, size, protect, &protect);
+    auto restored = VirtualProtect(addr, size, protect, &protect);
+    return success && restored;
 }
 
 int util::write_memory(void* addr, const void* src, size_t size)
@@ -54,10 +55,12 @@ int util::write_memory(void* addr, const void* src, size_t size)
     if (!VirtualProtect(addr, size, PAGE_EXECUTE_READWRITE, &protect))
         return 0;
 
-    if (!WriteProcessMemory(GetCurrentProcess(), addr, src, size, nullptr))
-        return 0;
+    auto success = WriteProcessMemory(GetCurrentProcess(), addr, src, size, nullptr);
+    if (success)
+        FlushInstructionCache(GetCurrentProcess(), addr, size);
 
-    return VirtualProtect(addr, size, protect, &protect);
+    auto restored = VirtualProtect(addr, size, protect, &protect);
+    return success && restored;
 }
 
 int util::write_memory(void* addr, int value, size_t size)
@@ -70,5 +73,6 @@ int util::write_memory(void* addr, int value, size_t size)
         return 0;
 
     std::memset(addr, value, size);
+    FlushInstructionCache(GetCurrentProcess(), addr, size);
     return VirtualProtect(addr, size, protect, &protect);
 }

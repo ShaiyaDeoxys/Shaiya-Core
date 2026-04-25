@@ -21,6 +21,7 @@ bool backspace_utf8_textbox_char(void* textBox);
 
 namespace hook
 {
+    void blacksmith();
     void camera_limit();
     void character();
     void command();

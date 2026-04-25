@@ -1,6 +1,7 @@
 #include <random>
 #include <ranges>
 #include <string>
+#include <utility>
 #include <util/util.h>
 #include <shaiya/include/common/ItemEffect.h>
 #include <shaiya/include/common/ItemSlot.h>
@@ -26,6 +27,19 @@ using namespace shaiya;
 
 namespace packet_gem
 {
+    enum class CraftStat
+    {
+        Strength,
+        Dexterity,
+        Intelligence,
+        Wisdom,
+        Reaction,
+        Luck,
+        Health,
+        Mana,
+        Stamina,
+    };
+
     void send_item_slot_update(CUser* user, CItem* item, int bag, int slot)
     {
         GameItemGetOutgoing outgoing{};
@@ -43,6 +57,134 @@ namespace packet_gem
     bool can_add_craft_stat(int currentValue, int numCraftExpansions, int maxCraftExpansions)
     {
         return currentValue || numCraftExpansions < maxCraftExpansions;
+    }
+
+    bool is_armor_only_craft_stat(CraftStat stat)
+    {
+        return stat == CraftStat::Health ||
+            stat == CraftStat::Mana ||
+            stat == CraftStat::Stamina;
+    }
+
+    bool can_use_craft_stat_rune(CItem* item, CraftStat stat)
+    {
+        if (!item)
+            return false;
+
+        if (!is_armor_only_craft_stat(stat))
+            return true;
+
+        return !CItem::IsAccessory(item) && !CItem::IsWeapon(item);
+    }
+
+    int get_craft_stat(CItem* item, CraftStat stat)
+    {
+        switch (stat)
+        {
+        case CraftStat::Strength:
+            return item->craftStrength;
+        case CraftStat::Dexterity:
+            return item->craftDexterity;
+        case CraftStat::Intelligence:
+            return item->craftIntelligence;
+        case CraftStat::Wisdom:
+            return item->craftWisdom;
+        case CraftStat::Reaction:
+            return item->craftReaction;
+        case CraftStat::Luck:
+            return item->craftLuck;
+        case CraftStat::Health:
+            return item->craftHealth;
+        case CraftStat::Mana:
+            return item->craftMana;
+        case CraftStat::Stamina:
+            return item->craftStamina;
+        default:
+            return 0;
+        }
+    }
+
+    void set_craft_stat(CItem* item, CraftStat stat, int value)
+    {
+        switch (stat)
+        {
+        case CraftStat::Strength:
+            ItemHelper::SetCraftStrength(item, value);
+            break;
+        case CraftStat::Dexterity:
+            ItemHelper::SetCraftDexterity(item, value);
+            break;
+        case CraftStat::Intelligence:
+            ItemHelper::SetCraftIntelligence(item, value);
+            break;
+        case CraftStat::Wisdom:
+            ItemHelper::SetCraftWisdom(item, value);
+            break;
+        case CraftStat::Reaction:
+            ItemHelper::SetCraftReaction(item, value);
+            break;
+        case CraftStat::Luck:
+            ItemHelper::SetCraftLuck(item, value);
+            break;
+        case CraftStat::Health:
+            ItemHelper::SetCraftHealth(item, value);
+            break;
+        case CraftStat::Mana:
+            ItemHelper::SetCraftMana(item, value);
+            break;
+        case CraftStat::Stamina:
+            ItemHelper::SetCraftStamina(item, value);
+            break;
+        default:
+            break;
+        }
+    }
+
+    bool apply_craft_stat(CUser* user, CItem* item, int bag, CraftStat stat, int value)
+    {
+        if (!can_use_craft_stat_rune(item, stat))
+            return false;
+
+        if (!bag)
+            CUser::ItemEquipmentOptionRem(user, item);
+
+        set_craft_stat(item, stat, value);
+
+        if (!bag)
+            CUser::ItemEquipmentOptionAdd(user, item);
+
+        return true;
+    }
+
+    bool apply_random_craft_stat(CUser* user, CItem* item, int bag, CraftStat stat, int value, int numCraftExpansions, int maxCraftExpansions)
+    {
+        if (!can_add_craft_stat(get_craft_stat(item, stat), numCraftExpansions, maxCraftExpansions))
+            return false;
+
+        return apply_craft_stat(user, item, bag, stat, value);
+    }
+
+    bool apply_perfect_craft_stat(CUser* user, CItem* item, int bag, CraftStat stat, int maxValue, int numCraftExpansions, int maxCraftExpansions)
+    {
+        auto currentValue = get_craft_stat(item, stat);
+        if (!can_add_craft_stat(currentValue, numCraftExpansions, maxCraftExpansions))
+            return false;
+
+        if (currentValue >= maxValue)
+            return false;
+
+        return apply_craft_stat(user, item, bag, stat, maxValue);
+    }
+
+    bool remove_craft_stat(CUser* user, CItem* item, int bag, CraftStat stat)
+    {
+        if (!can_use_craft_stat_rune(item, stat))
+            return false;
+
+        if (!get_craft_stat(item, stat))
+            return false;
+
+        return apply_craft_stat(user, item, bag, stat, 0);
     }
 
     bool has_craft_ability(CItem* item)
@@ -97,6 +239,25 @@ namespace packet_gem
             target->info->reqWis >= source->info->reqWis;
     }
 
+    bool has_synthesis_materials(CUser* user, const ItemSynthesis& synthesis)
+    {
+        for (const auto& [type, typeId, count] : std::views::zip(
+            std::as_const(synthesis.materialType),
+            std::as_const(synthesis.materialTypeId),
+            std::as_const(synthesis.materialCount)
+        ))
+        {
+            if (!type || !typeId || !count)
+                continue;
+
+            int bag{}, slot{};
+            if (!ItemFinder(user, bag, slot, ItemCountGreaterEqualF(type, typeId, count)))
+                return false;
+        }
+
+        return true;
+    }
+
     int get_num_craft_expansions(CItem* item)
     {
         int count{};
@@ -141,9 +302,6 @@ namespace packet_gem
 
     /// <summary>
     /// Handles incoming 0x806 packets.
-    /// Future feature - broken right now: custom deterministic runes based on
-    /// effect 62 plus a selector are intentionally not active. Effect 62 keeps
-    /// the stock random recreation behavior.
     /// </summary>
     void handler_0x806(CUser* user, GameItemComposeIncoming_EP6_4* incoming)
     {
@@ -202,12 +360,13 @@ namespace packet_gem
         auto craftValue = uni(eng);
 
         auto maxHealth = user->maxHealth;
-        auto maxMana = user->maxHealth;
-        auto maxStamina = user->maxHealth;
+        auto maxMana = user->maxMana;
+        auto maxStamina = user->maxStamina;
 
         switch (rune->info->effect)
         {
         case ItemEffect::RecreationRune:
+        {
             if (!incoming->itemBag)
             {
                 CUser::ItemEquipmentOptionRem(user, item);
@@ -218,97 +377,169 @@ namespace packet_gem
 
             CItem::ReGenerationCraftExpansion(item, true);
             break;
+        }
         case ItemEffect::StrRecreationRune:
-            // Perfect runes may create the stat if the item still has free craft slots.
-            if (!can_add_craft_stat(item->craftStrength, numCraftExpansions, maxCraftExpansions))
+        {
+            if (!apply_random_craft_stat(user, item, incoming->itemBag, CraftStat::Strength, craftValue, numCraftExpansions, maxCraftExpansions))
                 return;
-
-            if (!incoming->itemBag)
-            {
-                CUser::ItemEquipmentOptionRem(user, item);
-                ItemHelper::SetCraftStrength(item, craftValue);
-                CUser::ItemEquipmentOptionAdd(user, item);
-                break;
-            }
-
-            ItemHelper::SetCraftStrength(item, craftValue);
-
             break;
+        }
         case ItemEffect::DexRecreationRune:
-            if (!can_add_craft_stat(item->craftDexterity, numCraftExpansions, maxCraftExpansions))
+        {
+            if (!apply_random_craft_stat(user, item, incoming->itemBag, CraftStat::Dexterity, craftValue, numCraftExpansions, maxCraftExpansions))
                 return;
-
-            if (!incoming->itemBag)
-            {
-                CUser::ItemEquipmentOptionRem(user, item);
-                ItemHelper::SetCraftDexterity(item, craftValue);
-                CUser::ItemEquipmentOptionAdd(user, item);
-                break;
-            }
-
-            ItemHelper::SetCraftDexterity(item, craftValue);
-
             break;
+        }
         case ItemEffect::IntRecreationRune:
-            if (!can_add_craft_stat(item->craftIntelligence, numCraftExpansions, maxCraftExpansions))
+        {
+            if (!apply_random_craft_stat(user, item, incoming->itemBag, CraftStat::Intelligence, craftValue, numCraftExpansions, maxCraftExpansions))
                 return;
-
-            if (!incoming->itemBag)
-            {
-                CUser::ItemEquipmentOptionRem(user, item);
-                ItemHelper::SetCraftIntelligence(item, craftValue);
-                CUser::ItemEquipmentOptionAdd(user, item);
-                break;
-            }
-
-            ItemHelper::SetCraftIntelligence(item, craftValue);
-
             break;
+        }
         case ItemEffect::WisRecreationRune:
-            if (!can_add_craft_stat(item->craftWisdom, numCraftExpansions, maxCraftExpansions))
+        {
+            if (!apply_random_craft_stat(user, item, incoming->itemBag, CraftStat::Wisdom, craftValue, numCraftExpansions, maxCraftExpansions))
                 return;
-
-            if (!incoming->itemBag)
-            {
-                CUser::ItemEquipmentOptionRem(user, item);
-                ItemHelper::SetCraftWisdom(item, craftValue);
-                CUser::ItemEquipmentOptionAdd(user, item);
-                break;
-            }
-
-            ItemHelper::SetCraftWisdom(item, craftValue);
-
             break;
+        }
         case ItemEffect::RecRecreationRune:
-            if (!can_add_craft_stat(item->craftReaction, numCraftExpansions, maxCraftExpansions))
+        {
+            if (!apply_random_craft_stat(user, item, incoming->itemBag, CraftStat::Reaction, craftValue, numCraftExpansions, maxCraftExpansions))
                 return;
-
-            if (!incoming->itemBag)
-            {
-                CUser::ItemEquipmentOptionRem(user, item);
-                ItemHelper::SetCraftReaction(item, craftValue);
-                CUser::ItemEquipmentOptionAdd(user, item);
-                break;
-            }
-
-            ItemHelper::SetCraftReaction(item, craftValue);
-
             break;
+        }
         case ItemEffect::LucRecreationRune:
-            if (!can_add_craft_stat(item->craftLuck, numCraftExpansions, maxCraftExpansions))
+        {
+            if (!apply_random_craft_stat(user, item, incoming->itemBag, CraftStat::Luck, craftValue, numCraftExpansions, maxCraftExpansions))
                 return;
-
-            if (!incoming->itemBag)
-            {
-                CUser::ItemEquipmentOptionRem(user, item);
-                ItemHelper::SetCraftLuck(item, craftValue);
-                CUser::ItemEquipmentOptionAdd(user, item);
-                break;
-            }
-
-            ItemHelper::SetCraftLuck(item, craftValue);
-
             break;
+        }
+        case ItemEffect::HealthRecreationRune:
+        {
+            if (!apply_random_craft_stat(user, item, incoming->itemBag, CraftStat::Health, craftValue, numCraftExpansions, maxCraftExpansions))
+                return;
+            break;
+        }
+        case ItemEffect::ManaRecreationRune:
+        {
+            if (!apply_random_craft_stat(user, item, incoming->itemBag, CraftStat::Mana, craftValue, numCraftExpansions, maxCraftExpansions))
+                return;
+            break;
+        }
+        case ItemEffect::StaminaRecreationRune:
+        {
+            if (!apply_random_craft_stat(user, item, incoming->itemBag, CraftStat::Stamina, craftValue, numCraftExpansions, maxCraftExpansions))
+                return;
+            break;
+        }
+        case ItemEffect::StrPerfectRecreationRune:
+        {
+            if (!apply_perfect_craft_stat(user, item, incoming->itemBag, CraftStat::Strength, maxCraftValue, numCraftExpansions, maxCraftExpansions))
+                return;
+            break;
+        }
+        case ItemEffect::DexPerfectRecreationRune:
+        {
+            if (!apply_perfect_craft_stat(user, item, incoming->itemBag, CraftStat::Dexterity, maxCraftValue, numCraftExpansions, maxCraftExpansions))
+                return;
+            break;
+        }
+        case ItemEffect::IntPerfectRecreationRune:
+        {
+            if (!apply_perfect_craft_stat(user, item, incoming->itemBag, CraftStat::Intelligence, maxCraftValue, numCraftExpansions, maxCraftExpansions))
+                return;
+            break;
+        }
+        case ItemEffect::WisPerfectRecreationRune:
+        {
+            if (!apply_perfect_craft_stat(user, item, incoming->itemBag, CraftStat::Wisdom, maxCraftValue, numCraftExpansions, maxCraftExpansions))
+                return;
+            break;
+        }
+        case ItemEffect::RecPerfectRecreationRune:
+        {
+            if (!apply_perfect_craft_stat(user, item, incoming->itemBag, CraftStat::Reaction, maxCraftValue, numCraftExpansions, maxCraftExpansions))
+                return;
+            break;
+        }
+        case ItemEffect::LucPerfectRecreationRune:
+        {
+            if (!apply_perfect_craft_stat(user, item, incoming->itemBag, CraftStat::Luck, maxCraftValue, numCraftExpansions, maxCraftExpansions))
+                return;
+            break;
+        }
+        case ItemEffect::HealthPerfectRecreationRune:
+        {
+            if (!apply_perfect_craft_stat(user, item, incoming->itemBag, CraftStat::Health, maxCraftValue, numCraftExpansions, maxCraftExpansions))
+                return;
+            break;
+        }
+        case ItemEffect::ManaPerfectRecreationRune:
+        {
+            if (!apply_perfect_craft_stat(user, item, incoming->itemBag, CraftStat::Mana, maxCraftValue, numCraftExpansions, maxCraftExpansions))
+                return;
+            break;
+        }
+        case ItemEffect::StaminaPerfectRecreationRune:
+        {
+            if (!apply_perfect_craft_stat(user, item, incoming->itemBag, CraftStat::Stamina, maxCraftValue, numCraftExpansions, maxCraftExpansions))
+                return;
+            break;
+        }
+        case ItemEffect::StrRecreationRemovalRune:
+        {
+            if (!remove_craft_stat(user, item, incoming->itemBag, CraftStat::Strength))
+                return;
+            break;
+        }
+        case ItemEffect::DexRecreationRemovalRune:
+        {
+            if (!remove_craft_stat(user, item, incoming->itemBag, CraftStat::Dexterity))
+                return;
+            break;
+        }
+        case ItemEffect::IntRecreationRemovalRune:
+        {
+            if (!remove_craft_stat(user, item, incoming->itemBag, CraftStat::Intelligence))
+                return;
+            break;
+        }
+        case ItemEffect::WisRecreationRemovalRune:
+        {
+            if (!remove_craft_stat(user, item, incoming->itemBag, CraftStat::Wisdom))
+                return;
+            break;
+        }
+        case ItemEffect::RecRecreationRemovalRune:
+        {
+            if (!remove_craft_stat(user, item, incoming->itemBag, CraftStat::Reaction))
+                return;
+            break;
+        }
+        case ItemEffect::LucRecreationRemovalRune:
+        {
+            if (!remove_craft_stat(user, item, incoming->itemBag, CraftStat::Luck))
+                return;
+            break;
+        }
+        case ItemEffect::HealthRecreationRemovalRune:
+        {
+            if (!remove_craft_stat(user, item, incoming->itemBag, CraftStat::Health))
+                return;
+            break;
+        }
+        case ItemEffect::ManaRecreationRemovalRune:
+        {
+            if (!remove_craft_stat(user, item, incoming->itemBag, CraftStat::Mana))
+                return;
+            break;
+        }
+        case ItemEffect::StaminaRecreationRemovalRune:
+        {
+            if (!remove_craft_stat(user, item, incoming->itemBag, CraftStat::Stamina))
+                return;
+            break;
+        }
         default:
             NetworkHelper::Send(user, &failure, sizeof(GameItemComposeOutgoing));
             return;
@@ -398,6 +629,12 @@ namespace packet_gem
     /// </summary>
     void handler_0x831(CUser* user, GameItemSynthesisRecipeIncoming* incoming)
     {
+        if (!user->savePosUseBag || user->savePosUseBag > user->bagsUnlocked)
+            return;
+
+        if (user->savePosUseSlot >= ItemSlotCount)
+            return;
+
         auto& chaoticSquare = user->inventory[user->savePosUseBag][user->savePosUseSlot];
         if (!chaoticSquare)
             return;
@@ -455,6 +692,9 @@ namespace packet_gem
         auto& synthesis = it->second[incoming->index];
         auto newItemInfo = CGameData::GetItemInfo(synthesis.newItemType, synthesis.newItemTypeId);
         if (!newItemInfo)
+            return;
+
+        if (!has_synthesis_materials(user, synthesis))
             return;
 
         if (incoming->money > user->money)

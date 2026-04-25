@@ -152,6 +152,8 @@ void Configuration::LoadServerConfig()
 
 void Configuration::LoadBattlefieldMoveData()
 {
+    g_battlefieldMoveData.clear();
+
     try
     {
         std::filesystem::path path(m_root);
@@ -164,7 +166,6 @@ void Configuration::LoadBattlefieldMoveData()
         if (count <= 0)
             return;
 
-        g_battlefieldMoveData.clear();
         g_battlefieldMoveData.reserve(count);
 
         for (int num = 1; num <= count; ++num)
@@ -210,6 +211,9 @@ void Configuration::LoadBattlefieldMoveData()
 
 void Configuration::LoadItemSetData()
 {
+    g_itemSets.clear();
+    g_itemSetSynergies.clear();
+
     try
     {
         std::filesystem::path path(m_root);
@@ -266,6 +270,9 @@ void Configuration::LoadItemSetData()
 
 void Configuration::LoadItemSynthesis()
 {
+    g_itemSyntheses.clear();
+    g_chaoticSquares.clear();
+
     try
     {
         std::filesystem::path path(m_root);
@@ -396,6 +403,9 @@ void Configuration::LoadItemSynthesis()
 
 void Configuration::LoadRewardItemEvent()
 {
+    g_rewardItemCount = 0;
+    g_rewardItemList.fill({});
+
     try
     {
         std::filesystem::path path(m_root);

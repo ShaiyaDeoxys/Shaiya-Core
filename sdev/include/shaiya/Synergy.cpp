@@ -64,8 +64,8 @@ void Synergy::removeSynergies(CUser* user)
         return;
 
     auto maxHealth = user->maxHealth;
-    auto maxMana = user->maxHealth;
-    auto maxStamina = user->maxHealth;
+    auto maxMana = user->maxMana;
+    auto maxStamina = user->maxStamina;
 
     auto& synergies = it->second;
     for (const auto& synergy : synergies)
@@ -127,8 +127,8 @@ void Synergy::applySynergies(CUser* user, const std::vector<ItemSetSynergy>& syn
         Synergy::removeSynergies(user);
 
     auto maxHealth = user->maxHealth;
-    auto maxMana = user->maxHealth;
-    auto maxStamina = user->maxHealth;
+    auto maxMana = user->maxMana;
+    auto maxStamina = user->maxStamina;
 
     for (const auto& synergy : synergies)
     {

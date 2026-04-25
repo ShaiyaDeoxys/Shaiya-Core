@@ -199,7 +199,7 @@ namespace
     }
 
     // Rune cutting fixes:
-    // These mirror the tested CE scripts. When the user state at +0x1270 is 2,
+    // When the user state at +0x1270 is 2,
     // skip the map/zone rejection path and continue through the success branch.
     unsigned u0x473DB7 = 0x473DB7;
     unsigned u0x473EDE = 0x473EDE;
@@ -429,7 +429,7 @@ namespace
 
     // Jump cut solution.
     // If the packet/state byte at [ebp+0x02] is 2, jump to the original
-    // success/skip branch used by the tested CE script; otherwise preserve the
+    // success/skip branch used by the validated patch path; otherwise preserve the
     // original stack write and continue normally.
     unsigned u0x478954 = 0x478954;
     unsigned u0x479155 = 0x479155;
@@ -539,7 +539,7 @@ namespace
 
     // Revive with max HP/MP/SP.
     // The stock revive flow starts by restoring only part of the character's
-    // resources. This hook mirrors the tested CE script and copies the max
+    // resources. This hook copies the max
     // HP/SP/MP values into the current HP/SP/MP fields before continuing after
     // the original partial-restore block.
     unsigned u0x466908 = 0x466908;
@@ -1008,7 +1008,7 @@ void hook::utilities()
 
     // Enable cross-faction login and world enter.
     // The original code conditionally rejects the opposite faction; these
-    // patches turn the tested CE conditional jumps into unconditional jumps.
+    // patches turn those conditional jumps into unconditional jumps.
     unsigned char crossFactionLoginLight[] = { 0xE9, 0x68, 0x01, 0x00, 0x00, 0x90 };
     unsigned char crossFactionLoginFury[] = { 0xE9, 0xAE, 0x00, 0x00, 0x00, 0x90 };
     unsigned char crossFactionWorldEnter = 0xEB;
@@ -1086,7 +1086,7 @@ void hook::utilities()
     // Lapisia operation flux fix.
     util::detour((void*)0x46CCFE, naked_0x46CCFE, 7);
 
-    // Fix mantle enchancements hack via packet.
+    // Mantle enhancement packet guard.
     // Redirect the mantle rejection branch to the regular failure return path.
     unsigned char mantleEnhancementPacketFix[] = { 0x0F, 0x84, 0xB9, 0x00, 0x00, 0x00 };
     util::write_memory((void*)0x46C9F8, mantleEnhancementPacketFix, sizeof(mantleEnhancementPacketFix));

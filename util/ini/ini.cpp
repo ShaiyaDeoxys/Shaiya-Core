@@ -1,4 +1,5 @@
 #include <filesystem>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -68,14 +69,23 @@ std::wstring util::ini::get_value(const wchar_t* section, const wchar_t* key, co
 
     std::error_code ec;
     auto size = std::filesystem::file_size(path, ec);
-    if (size == -1)
+    if (ec)
         return defaultValue;
 
-    if (size > UINT32_MAX)
-        size = UINT32_MAX;
+    constexpr auto kMaxProfileChars = static_cast<std::uintmax_t>(std::numeric_limits<DWORD>::max() - 1);
+    if (size > kMaxProfileChars)
+        size = kMaxProfileChars;
 
-    std::wstring buffer(static_cast<size_t>(size), 0);
-    auto count = GetPrivateProfileStringW(section, key, defaultValue, buffer.data(), buffer.size(), path.c_str());
+    // INI section/key enumerations are returned as double-null-terminated lists.
+    // Keep extra room so GetPrivateProfileStringW can report the complete list.
+    std::wstring buffer(static_cast<std::size_t>(size) + 2, L'\0');
+    auto count = GetPrivateProfileStringW(
+        section,
+        key,
+        defaultValue,
+        buffer.data(),
+        static_cast<DWORD>(buffer.size()),
+        path.c_str());
     if (!count)
         return defaultValue;
 

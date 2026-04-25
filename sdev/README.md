@@ -41,6 +41,181 @@ All features are implemented based on client specifications. The intent is to ke
 - Cloaks contributing real defense/resistance, off-hand support, stealth running, mantle drop fixes, and mantle packet hardening.
 - Battleground movement support using the normal cast/update flow.
 
+## Server Feature Catalog
+
+This section maps the active server-side features installed by `Main()` in `src/main.cpp`.
+
+### Bootstrap And Configuration
+
+- **Root path detection**: configuration files are resolved from the executable directory, then `Data`, so injected/imported DLL working-directory issues do not break file loads.
+- **Extended `CUser` memory**: user allocation is increased from `0x62A0` to `0x62F4`. Custom fields include exchange confirmation state, extended item quality arrays, skill ability 70 storage, quest EXP multiplier storage, and synergy runtime state.
+- **User lifecycle cleanup**: custom user fields are initialized on construction/reset. Item-set synergy state is erased on world leave.
+- **`ServerConfig.ini`**: `Data/ServerConfig.ini` is created with defaults when missing. `EnchantCap` defaults to `20`, is clamped to `1..49`, and patches the lapisian enchant cap. `LevelCap` defaults to `70`, is clamped to `1..254`, and patches all known level-cap comparisons.
+- **`BattleFieldMoveInfo.ini`**: loads battlefield level ranges and per-family destination coordinates for the battleground button server packet.
+- **`SetItem.SData`**: loads decrypted server-side set/synergy data and resets stale synergy state on reload.
+- **`ChaoticSquare.ini`**: loads item synthesis recipes and builds the chaotic-square result tables used by the packet handlers.
+- **`RewardItem.ini`**: loads the account-wide reward item event list. The server supports up to the configured `RewardItemUnit` list size and ignores malformed rows.
+
+### Security And Stability
+
+- Sanitizes command, character, and guild strings before DB-bound paths.
+- Hardens malformed network sends through `NetworkHelper` null/length checks.
+- Rejects malformed item/equipment operations where pointers or inventory coordinates are invalid.
+- Validates character-name availability packet length and name length before DB lookup.
+- Guards 6.4 packet conversions against overflowing fixed packet payload limits.
+- Prevents invalid inventory bag indexes from being used as warehouse memory.
+- Keeps unsupported mailbox behavior disabled.
+
+### Cross-Faction And Social Behavior
+
+- Enables cross-faction whisper.
+- Enables cross-faction trade.
+- Enables cross-faction inspect.
+- Enables cross-faction login/world-enter paths.
+- Sends GM chat to both factions.
+- Allows summon/move behavior in Exiel room.
+- Allows union leader summon to affect the whole raid.
+- Supports party boss/sub-boss map-position broadcast packet `0xB1C`.
+
+### Guild Behavior
+
+- Removes the original seven-officer limit.
+- Removes guild creation/join penalty timer checks.
+- Allows repeated GRB entry by not storing the one-entry marker.
+- Allows guild creation with two players instead of seven.
+
+### Character Growth And Timers
+
+- Uses Ultimate Mode stat/skill-point reset and level-up paths for every mode.
+- Gives five skill points per level across the patched growth branches.
+- Prevents stat/skill reset items from clearing potential skills when reset is disabled.
+- Shortens the ress-leader gameplay timer from 30 seconds to 5 seconds.
+- Shortens logout/game-over server-side timing so it aligns with the client visual patch.
+- Revives players with max HP/MP/SP.
+- Allows characters to run while stealthed.
+
+### Raid 150
+
+- Expands `CParty` from 30 users to 150 users.
+- Patches party-user array offsets, raid/party flags, critical-section offsets, allocation size, and all known loop/count comparisons.
+- Validates original operand bytes before patching; if an unsupported `ps_game.exe` layout is detected, the raid patch aborts instead of writing blind bytes.
+- Installs detours for server paths that iterate, send, or index raid members.
+- Works with the client five-page raid UI, where each page represents 30 users.
+
+### EP6.4 Equipment And Shape Support
+
+- Enables EP6.4 equipment slots: vehicle, pet, costume, and wings.
+- Rebuilds equipment-slot validation using real type and item type rules.
+- Supports one-hand weapon plus shield/off-hand combinations.
+- Sends `0x307` inspect equipment packets with up to 17 visible equipment entries.
+- Sends 6.4 user-shape packets including extended visual fields and vehicle data.
+- Expands clone-user allocation for the extended shape data.
+- Extends equipment initialization, bag-to-bag equipment movement, and clear-equipment paths to the 6.4 item-list count.
+- Stores extended item quality outside the original compact array and redirects quality/enchant paths to it.
+
+### Item Drops, Inventory, And Gold
+
+- Sends solo gold and solo item drops directly to inventory where appropriate.
+- Supports optional gold bonus settings in the direct gold path.
+- Stacks Fortune Bag drops in inventory.
+- Enables helmets and mantles to drop.
+- Fixes mantles not dropping from bag-item drop paths.
+- Fixes mantle merchants spawning at server start.
+- Hardens mantle enhancement packets so invalid mantle enhancement attempts go to the normal failure path.
+- Adds infinite consumable behavior for explicitly listed unsellable item IDs.
+- Fixes lapisia operation flux behavior.
+
+### Item Effects
+
+- **Safety charms**: item effect `103` is handled in gem/lapisian flows.
+- **Town move scrolls**: item effect `104` uses item `ReqVg` as the gatekeeper `NpcTypeID` on map `2`.
+- **Item ability transfer cube**: item effect `105` transfers `CraftName` and `Gems` from inventory slot 1 to slot 3, with slot 2 as the cube.
+- **Recreation runes**: supports vanilla, explicit random, perfect, and removal recreation rune effects, including HP/MP/SP effects.
+- **Chaotic squares / synthesis**: supports configured item synthesis recipes and material checks before consuming resources.
+- Unsupported or intentionally disabled effects fall back to stock behavior.
+
+### Recreation Runes
+
+- Vanilla random recreation effect `62` remains supported.
+- Random STR/DEX/INT/WIS/REC/LUC effects `86..91` are supported.
+- Random HP/MP/SP effects `220..222` are supported.
+- Perfect STR/DEX/INT/WIS/REC/LUC/HP/MP/SP effects `223..231` are supported.
+- Removal STR/DEX/INT/WIS/REC/LUC/HP/MP/SP effects `232..240` are supported.
+- HP/MP/SP recreation is restricted to non-weapon, non-accessory armor-style items.
+- `ReqWis` is reused as the maximum single craft-stat value.
+- MP/SP handling uses the correct `maxMana` and `maxStamina` item fields.
+
+### Lapisian And Enchanting
+
+- Perfect lapisian support uses item `ReqRec` as a custom scaled success rate.
+- If `ReqRec` is zero, the server falls back to `g_LapisianEnchantSuccessRate`.
+- Safety charm behavior is integrated into success/failure paths.
+- Weapon-step packet `0x116` sends server enchant-step values to the client.
+- The enchant cap comes from `ServerConfig.ini`.
+
+### Packets And EP6.4 Protocol Support
+
+- **Character list `0x101`**: converts DB character list rows to the EP6.4 client structure, including cloak info and deletion state.
+- **Name availability `0x119` / DB `0x40D`**: forwards validated name checks to dbAgent and returns the availability result.
+- **Warehouse `0x711`**: sends 6.4 bank item units in chunks that stay under the 2048-byte packet limit. Warehouse access is read-only in this path.
+- **Reward item event `0x407` / `0x1F00`**: tracks account-wide reward progress and notifies the client when a reward can be claimed.
+- **Main interface `0x233`**: handles battleground movement requests from the client.
+- **PC `0x55A`**: handles town move scroll requests with explicit gate index validation.
+- **MyShop `0x230B`**: converts shop item lists to EP6.4 units.
+- **Market `0x1C01`**: maps the EP6.4 vehicle market type around unsupported stock market categories.
+- **Exchange `0xA05/0xA09/0xA0A/0x240A/0x240D`**: supports 6.4 exchange item units and PVP exchange packet compatibility.
+- **Shop / Item Mall `0x2602/0x2603/0xE06`**: supports 6.4 item mall purchase/gift point flows and point persistence.
+- Unknown custom main-interface packets are closed explicitly rather than silently ignored.
+
+### Battleground Movement
+
+- Packet `0x233` chooses the valid battlefield by player level from `BattleFieldMoveInfo.ini`.
+- Destination is selected by family index: HU, EL, DE, VI.
+- Dead players, players logging out, players already in the destination map, and missing destination zones are rejected.
+- Movement uses the same 5 second cast/update path as town move scrolls.
+- The request is not backed by a consumable item; `savePosUseBag`, `savePosUseSlot`, and `savePosUseIndex` are cleared before scheduling movement.
+- MyShop is ended and current actions are cancelled before the cast starts.
+
+### Quests And Rewards
+
+- Supports EP6 quest-end packet `0x903`.
+- Supports six quest result choices, each with up to three item rewards.
+- Sends game-log quest-end entries for awarded items.
+- Adds EXP and money through stock server helpers so downstream accounting remains intact.
+- Account-wide reward item event progress is checked every three seconds in the world thread.
+- Reward progress resets or completes according to the existing reward event flow described below.
+
+### Skill Abilities
+
+- Extends ability support for ability `35` EXP stones.
+- Supports ability `70` effects with delayed removal after the skill is stopped.
+- Supports ability `87` quest/EXP-style multiplier behavior.
+- Fixes ability type `19` cooldown handling so the server uses the real skill cooldown instead of the old fixed 500 second fallback.
+- Hooks skill cleanup paths so custom ability state is removed on death, skill clear, and end-time handling.
+- Keeps unsupported ability types on the stock server path.
+
+### Status, Stats, And Combat
+
+- Recalculates attack and equipment stats through patched equipment add/remove/reset paths.
+- Cloaks contribute real defense and resistance by including cloak slot/type in the recalculation range.
+- Patches recover-add sends so HP/MP/SP recovery packets behave with the custom status layout.
+- Supports off-hand one-hand weapon recognition in server equipment logic.
+- Applies death-skill behavior using the configured/default death skill path.
+- Fixes javelin/jump-cut style movement/combat edge cases from the original patch set.
+
+### Bosses, Obelisks, And World Thread
+
+- Sends server-wide boss death and spawn notices.
+- Stabilizes `Obelisk.ini` spawn timing by removing the stock one-hour randomizer. Practical scheduler delay can still add a small offset.
+- Runs reward item event checks from `CWorldThread::Update`.
+
+### Disabled Or Intentionally Not Implemented
+
+- Mailbox packets are present as a stub but the hook is disabled.
+- Medal event behavior is not implemented.
+- Free chaotic-square combination is not implemented.
+- Unsupported EP6.4 market vehicle behavior is handled with a compatibility workaround, not full native market support.
+
 ## Item Mall
 
 Install the following procedures:
@@ -157,30 +332,17 @@ The following items are supported:
 
 ### Recreation Runes
 
-| ItemId | Effect |
+The server supports vanilla random recreation plus explicit random,
+perfect, and removal runes by item effect. The client patch allows effects
+`220..240` in the NPC recreation window.
+
+| Effect | Result |
 |--------|--------|
-| 100171 | 62     |
-
-Custom deterministic recreation runes are currently disabled.
-
-Status: **Future feature - broken right now**
-
-The server currently preserves vanilla random recreation behavior for effect `62`. Do not publish custom deterministic rune data as a supported feature until the server-side item data contract is proven and retested.
-
-Historical design notes are kept here for future work only. The intended selector was:
-
-| ReqVg | Result |
-|-------|--------|
-| 1     | Max STR |
-| 2     | Max DEX |
-| 3     | Max INT |
-| 4     | Max WIS |
-| 5     | Max REC |
-| 6     | Max LUC |
-| 7     | Max HP |
-| 8     | Max MP |
-| 9     | Max SP |
-| 10    | Remove all craft stats |
+| 62     | Vanilla random recreation |
+| 86-91  | Random STR/DEX/INT/WIS/REC/LUC |
+| 220-222 | Random HP/MP/SP |
+| 223-231 | Perfect STR/DEX/INT/WIS/REC/LUC/HP/MP/SP |
+| 232-240 | Remove STR/DEX/INT/WIS/REC/LUC/HP/MP/SP |
 
 ## NpcQuest
 

@@ -105,6 +105,6 @@ void __declspec(naked) naked_target_view_draw_hp()
 void hook::target_view()
 {
     // Render current/max HP in the native target frame for monsters and users.
-    // This replaces the temporary ImGui overlay and avoids stealing mouse input.
+    // Native rendering keeps the overlay passive and avoids stealing mouse input.
     util::detour((void*)0x5351B6, naked_target_view_draw_hp, 7);
 }

@@ -35,6 +35,7 @@ namespace
     bool g_battlefieldMoveDataLoaded = false;
     bool g_buttonInitialized = false;
     bool g_mouseWasDown = false;
+    bool g_buttonPressStartedInside = false;
     CButton g_battlefieldButton{};
     CMessage* g_message = nullptr;
     D2D_POINT_2U g_anchor{};
@@ -137,9 +138,8 @@ namespace
         if (!GetCursorPos(&cursor))
             return false;
 
-        auto hwnd = GetForegroundWindow();
-
-        if (!hwnd || !ScreenToClient(hwnd, &cursor))
+        auto hwnd = g_var->hwnd;
+        if (!hwnd || GetForegroundWindow() != hwnd || !ScreenToClient(hwnd, &cursor))
             return false;
 
         auto x = static_cast<int>(g_anchor.x) + kButtonX;
@@ -210,8 +210,16 @@ namespace
         CButton::Draw(&g_battlefieldButton, g_anchor.x, g_anchor.y);
 
         auto mouseDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
-        if (!mouseDown && g_mouseWasDown && is_cursor_over_button())
+        auto cursorOverButton = is_cursor_over_button();
+
+        if (mouseDown && !g_mouseWasDown)
+            g_buttonPressStartedInside = cursorOverButton;
+
+        if (!mouseDown && g_mouseWasDown && g_buttonPressStartedInside && cursorOverButton)
             open_battlefield_confirm();
+
+        if (!mouseDown)
+            g_buttonPressStartedInside = false;
 
         g_mouseWasDown = mouseDown;
         handle_battlefield_message();

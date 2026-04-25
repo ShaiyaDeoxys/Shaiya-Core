@@ -17,9 +17,9 @@ namespace
     constexpr std::uint8_t kBuffSpacing = 0x24;
     constexpr std::uint8_t kBuffCountPerRow = 0x09;
     constexpr std::int32_t kFastTransitionDelay = 0x00000064;
-    constexpr std::uint32_t kLoginCrapSkipSplashSleepDelay = 0x00000000;
-    constexpr std::uint32_t kLoginCrapSkipPostInitDelay = 0x00000000;
-    constexpr char kLoginCrapSkipHiddenCopyrightMessage[100] = "";
+    constexpr std::uint32_t kLoginSplashSkipSplashSleepDelay = 0x00000000;
+    constexpr std::uint32_t kLoginSplashSkipPostInitDelay = 0x00000000;
+    constexpr char kLoginSplashSkipHiddenCopyrightMessage[100] = "";
     constexpr std::int32_t kClientRessLeaderVisualSeconds = 5;
     float gLogoutGameOverVisualSeconds = 2.0f;
     constexpr std::int32_t kLoginToCharacterSelectionDelayMs = 1000;
@@ -32,12 +32,12 @@ namespace
     constexpr bool kEnableUnicodeWindowTitleFix = true;
     constexpr wchar_t kDefaultGameWindowTitle[] = L"Shaiya";
     inline HWND g_gameWindowHwnd = nullptr;
-    // Experimental client-side interface texture redirect.
+    // Client-side interface texture redirect.
     // When enabled, known Game.exe interface texture strings that still point to
     // .tga/.jpg are rewritten to .png at runtime. This makes it easy to test a
     // PNG-based interface folder without modifying the original executable on disk.
     // Disable this flag to revert the whole redirect block quickly.
-    constexpr bool kEnableExperimentalInterfacePngRedirect = true;
+    constexpr bool kEnableInterfacePngRedirect = true;
     constexpr char kPngExtension[] = ".png";
     constexpr char kGameWindowClassName[] = "GAME";
 
@@ -2509,7 +2509,7 @@ void __declspec(naked) naked_auto_select_single_server_after_init()
 {
     __asm
     {
-        // Experimental instant single-server selection.
+        // Delayed single-server auto-selection.
         // Run after the server-selection UI object is fully initialized, but
         // before its first normal update/render pass. This keeps the original
         // CSelectServer::OnSelect connection path and only moves *when* it is
@@ -2629,12 +2629,12 @@ void hook::patch()
         0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
         0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90
     };
-    static constexpr unsigned char kLoginCrapSkipRenderBlock[] = {0xE9, 0xD8, 0x02, 0x00, 0x00};
-    static constexpr unsigned char kLoginCrapSkipAfterResourceInit[] = {0xE9, 0x96, 0x02, 0x00, 0x00};
+    static constexpr unsigned char kLoginSplashSkipRenderBlock[] = {0xE9, 0xD8, 0x02, 0x00, 0x00};
+    static constexpr unsigned char kLoginSplashSkipAfterResourceInit[] = {0xE9, 0x96, 0x02, 0x00, 0x00};
 
-    if (kEnableExperimentalInterfacePngRedirect)
+    if (kEnableInterfacePngRedirect)
     {
-        // Experimental PNG interface support.
+        // PNG interface support.
         // Rewrites known interface texture references in Game.exe from
         // .tga/.jpg to .png so the client can load a PNG-based interface pack.
         patch_module_interface_texture_extensions_to_png();
@@ -2696,7 +2696,7 @@ void hook::patch()
     util::write_memory((void*)0x4D750D, &kBuffSpacing, sizeof(kBuffSpacing));
     // 004D74EA  cmp eax,09
     util::write_memory((void*)0x4D74EC, &kBuffCountPerRow, sizeof(kBuffCountPerRow));
-    // Fast Transition (Experimental - 100ms)
+    // Fast transition delay.
     // 00436940  cmp eax,00000BB8
     util::write_memory((void*)0x436941, &kFastTransitionDelay, sizeof(kFastTransitionDelay));
     // 004D0340  push 00001388
@@ -2705,20 +2705,20 @@ void hook::patch()
     // Controlled by ADVANCED -> IDVIEW=ON/OFF in CONFIG.ini.
     load_id_view_setting();
     util::detour((void*)0x4E5876, naked_0x4E6D76, 5);
-    // Login crap skip.
+    // Login splash skip.
     // Hides the Nexon/copyright startup splash and skips its render/fade loops
     // while preserving the login resource setup that the account screen needs.
     // Do not replace this with a direct state-table jump to login: that looks
     // correct visually, but opens login with missing initialization and crashes
     // after the account login step.
-    util::write_memory((void*)0x74A5A0, kLoginCrapSkipHiddenCopyrightMessage, sizeof(kLoginCrapSkipHiddenCopyrightMessage));
-    util::write_memory((void*)0x4346B1, &kLoginCrapSkipSplashSleepDelay, sizeof(kLoginCrapSkipSplashSleepDelay));
-    util::write_memory((void*)0x434ACD, &kLoginCrapSkipPostInitDelay, sizeof(kLoginCrapSkipPostInitDelay));
-    util::write_memory((void*)0x4346BB, kLoginCrapSkipRenderBlock, sizeof(kLoginCrapSkipRenderBlock));
+    util::write_memory((void*)0x74A5A0, kLoginSplashSkipHiddenCopyrightMessage, sizeof(kLoginSplashSkipHiddenCopyrightMessage));
+    util::write_memory((void*)0x4346B1, &kLoginSplashSkipSplashSleepDelay, sizeof(kLoginSplashSkipSplashSleepDelay));
+    util::write_memory((void*)0x434ACD, &kLoginSplashSkipPostInitDelay, sizeof(kLoginSplashSkipPostInitDelay));
+    util::write_memory((void*)0x4346BB, kLoginSplashSkipRenderBlock, sizeof(kLoginSplashSkipRenderBlock));
     // 00434A92 calls the login resource init/check on 007C48FC. Once that has
     // run, advance to the original state-1 transition block instead of drawing
     // the remaining splash frames.
-    util::write_memory((void*)0x434A97, kLoginCrapSkipAfterResourceInit, sizeof(kLoginCrapSkipAfterResourceInit));
+    util::write_memory((void*)0x434A97, kLoginSplashSkipAfterResourceInit, sizeof(kLoginSplashSkipAfterResourceInit));
     // Ress leader visual timer.
     // The popup text comes from sysmsg 10068 and its countdown renders using
     // global 007AD434, initialized as 30 seconds at 004D5F41. This is separate
@@ -2829,6 +2829,8 @@ void hook::patch()
     util::write_memory((void*)0x434B42, kPushZero, sizeof(kPushZero));
     util::write_memory((void*)0x4347FC, kPushMinusOne, sizeof(kPushMinusOne));
     util::write_memory((void*)0x43493A, kPushMinusOne, sizeof(kPushMinusOne));
+    // Remove vanilla GM H-key HP viewer.
+    util::write_memory((void*)0x534817, 0x1, 1);
     // EP4 UI support.
     // Applies the EP4 HUD/layout package while intentionally leaving inventory
     // and the existing server-time text format untouched.

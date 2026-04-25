@@ -114,6 +114,7 @@
     <ClCompile Include="..\external\imgui\backends\imgui_impl_dx9.cpp" />
     <ClCompile Include="..\external\imgui\backends\imgui_impl_win32.cpp" />
     <ClCompile Include="src\camera_limit.cpp" />
+    <ClCompile Include="src\blacksmith.cpp" />
     <ClCompile Include="src\character.cpp" />
     <ClCompile Include="src\command.cpp" />
     <ClCompile Include="src\custom_game.cpp" />

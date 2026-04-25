@@ -38,45 +38,150 @@ TITLES=ON
 
 ; Visual colored-name rendering from helmet data.
 COLOUR=ON
+
+; Optional visual/performance toggles controlled by chat commands too.
+COSTUMES=TRUE
+PETS=TRUE
+WINGS=TRUE
+EFFECTS=TRUE
+FPS_BOOST=FALSE
+
+[FONT]
+; Written by /font. Defaults to Arial 13 normal.
+HEIGHT=13
+WEIGHT=400
+ITALIC=0
+FACENAME=Arial
 ```
 
 ## Commands
 
 - `/font` opens the Windows font picker and persists the selected in-game font.
+- `/effects on` and `/effects off` toggle player and mob effect rendering.
+- `/pets on` and `/pets off` toggle pet rendering. This also controls mob effects in the current hook.
+- `/wings on` and `/wings off` toggle wing rendering.
+- `/costumes on` and `/costumes off` toggle costume rendering.
+- `/fpsboost on` and `/fpsboost off` toggle the client FPS boost path.
 - `/titles on` and `/titles off` toggle visual item titles at runtime.
 - `/colour on` and `/colour off` toggle visual colored names at runtime.
+- `/color on` and `/color off` are accepted aliases for `/colour`.
 
 ## Stable Client Features
 
-- PNG interface support for known UI texture paths.
-- PNG screenshot output instead of JPG.
-- Chat UTF-8 support for composed Unicode input, including Vietnamese IME text, without enabling the global Vietnam codepage branch.
-- Unicode-safe main window handling while preserving the normal `Shaiya` window title.
-- EP4 UI support for the selected HUD pieces, excluding inventory and the stock EXP/Bless bar handling.
-- Raid 150 UI component using PNG raid textures.
-- Battleground button under the main stats UI.
-- Single-server selection skip with a safe delayed selection path.
-- Login splash skip, documented in code as `Login crap skip`.
-- Skip mode selection and force Ultimate Mode at character creation.
-- Name availability check bypass for character creation.
-- Client-side buy/sell quantity limit increased to 255.
-- Target HP viewer anchored to the native target frame and using the configured game font.
-- Movable/persistent buff layout with F6 and left-click behavior.
-- Item titles from cloak data and colored names from helmet data, including rainbow color mode.
-- Discord RPC with a static configurable message.
-- New resolution entries.
-- Cooldown for subaction messages (20 seconds).
-- Level-up message texture suppression.
-- Visual timer alignment for logout and ress-leader timers.
+This section is the client-side feature map. Every entry is installed from `Main()` in `src/main.cpp`.
+
+### Startup, Login, And Windowing
+
+- **Updater bypass**: `ADVANCED/SKIPUPDATER=1` injects the same command-line token normally provided by `Updater.exe`, allowing direct `Game.exe` launch without changing the normal startup state machine.
+- **Login server override**: `ADVANCED/IP=` rewrites the stock login server string. Empty or missing values keep the default `127.0.0.1`.
+- **Login splash skip**: removes the Nexon/copyright splash and shortens the startup waits while preserving required login resource initialization.
+- **Single-server skip**: when the server list has exactly one entry, the client hides the server panel and selects it through the safe delayed stock path.
+- **Unicode main HWND**: upgrades the GAME window to a Unicode window and keeps the visible title as `Shaiya`, preventing the legacy title truncation issue.
+- **UTF-8 chat input**: accepts composed Unicode/IME text, stores UTF-8 bytes in the stock textbox, fixes multibyte wrapping/rendering branches, and removes the forced byte-127 send terminator.
+- **System message dispatch**: provides a private window message used by client code to safely post system messages back through the game UI thread.
+
+### Character Creation And Selection
+
+- **Mode selection skip**: bypasses the mode-selection UI and forces Ultimate Mode during character creation.
+- **Name gate bypass**: skips local ASCII-only name format checks, legacy blocked-substring checks, the local "name already verified" gate, and the UI availability request. Real validation must be enforced server/dbAgent side.
+- **Busy-as-success fallback**: treats one legacy character-creation busy result path as success for compatibility with UTF-8/special-name creation flows.
+- **Character select adjustments**: patches select-screen texture/text positions used by the current interface pack.
+- **Extended character allocation**: grows `CCharacter` allocation from `0x43C` to `0x444`, initializes custom members, and resets them on character reset.
+
+### Interface And Assets
+
+- **PNG interface redirect**: rewrites known interface `.tga`/`.jpg` references to `.png` at runtime. The redirect is intentionally limited to known UI paths and avoids broad icon conversion.
+- **PNG screenshots**: rewrites screenshot filename templates from `.jpg/.JPG` to `.png`.
+- **EP4 HUD package**: ports selected EP4 HUD pieces: main stats frame/bars/level, target bar, target buffs/debuffs, map/minimap buttons/background/clock/server time, map arrows, bottom button strips, option main button, and load bar. Inventory and stock EXP/Bless bars are intentionally not replaced.
+- **Background render arguments**: adjusts startup/login background draw arguments used by the current UI setup.
+- **Level-up message suppression**: keeps the stock level-up texture creation flow, but forces the render size to zero so the splash is hidden.
+- **GM H-key HP viewer removal**: disables the vanilla redundant GM HP viewer opened by `H`; the custom target viewer remains available.
+- **Stats window color patch**: adjusts patched stats-window colors to fit the current interface.
+- **Dungeon map visibility**: allows dungeon maps to be shown by the client.
+
+### Raid 150 UI
+
+- Restores five raid page buttons using `RaidButton1.png` through `RaidButton5.png`.
+- Redirects party/raid indexing and rendering to the currently selected page, giving access to 150 users as five pages of 30.
+- Keeps extra raid labels white for readability.
+- Captures mouse messages over the raid page buttons so clicks no longer pass through to the world movement handler.
+- Clears the DirectInput left-button state when a raid button is consumed, preventing accidental movement behind the UI.
+
+### Battleground Button
+
+- Draws `main_stats_pvp_button.png` inside the main stats UI without rewriting the whole `CStatusMiniBar` layout.
+- Reads `BattleFieldMoveInfo_Client.ini` from the client root or `Data` folder to display the correct battlefield name for the player level.
+- Sends packet `0x233` only after the click starts and ends inside the button, avoiding accidental activation during window maximize/minimize.
+- Uses a native confirmation dialog before sending the move request.
+
+### Target, Names, Titles, And Text
+
+- **Target HP viewer**: draws current/max HP inside the native target frame for monsters and users, using the configured game font.
+- **Item titles**: renders visual titles from cloak data and can be toggled with `TITLES` or `/titles`.
+- **Name colors**: renders colored names from helmet data, including rainbow color mode, and can be toggled with `COLOUR` or `/colour`.
+- **Font picker**: `/font` updates the GDI font and all known D3DX camera font slots so labels, counters, chat-adjacent overlays, and native text helpers stay consistent.
+- **Chat balloon height**: increases chat balloon height from `1.5` to `1.75` for better title/name layouts.
+- **Mob/player effect toggles**: command hooks can hide player effects, mob effects, costumes, pets, wings, and related visual objects.
+
+### Items, Equipment, And Packets
+
+- **Custom recreation runes in blacksmith**: allows item effects `220..240` to be placed in the NPC recreation window.
+- **Buy/sell quantity limit**: raises the client-side quantity cap from `10` to `255`.
+- **Disguise removal fix**: stabilizes the `0x303` packet handler path.
+- **Appearance/sex change fix**: stabilizes the `0x226` packet handler path.
+- **System message 509 support**: handles the `0x229` message path.
+- **Javelin attack fix**: adjusts the `0x502` handler stack/argument layout.
+- **Item icon quantities**: draws inventory and quickslot item counts while skipping lapis/firework-style items that should not show counts.
+- **Two-hand/off-hand logic**: fixes `CPlayerData::IsTwoHandWeapon` behavior so custom off-hand support can coexist with one-hand weapons.
+- **Weapon step display**: patches the client weapon-step path used by lapisian/enchant display.
+- **Vehicle packet/display support**: supports vehicle-related EP6.4 shape/list packet fields and client display paths where implemented.
+
+### Quick Slots And Input
+
+- Adds the third quick-slot bar allocation/free/save behavior and routes item, skill, and basic-action movement between quick-slot bags.
+- Patches quick-slot plus buttons and interaction paths so the extended bars can be opened and used.
+- Removes selected client-side quick-slot delays: skill delay, basic action delay, and the extra `+1000ms` delay gate. The revolver delay patch is intentionally left disabled in code for release stability.
+- Holding left click while assigning status points applies `x10` when enough points are available; otherwise it falls back to `+1`.
+
+### Buffs And Movement
+
+- **Movable buff row**: hold `F6` plus left click to save the current buff position to `CONFIG.ini` under `[BUFF] LOCATION_X/LOCATION_Y`.
+- **Persistent buff layout**: detours the buff X/Y instructions so the saved location is used every render.
+- **Buff spacing/count**: adjusts row spacing and count per row to match the current interface.
+- **Fast transition**: shortens selected transition waits to `100ms`.
+
+### Visual Timers And Flow
+
+- **Ress leader timer**: aligns the client popup countdown with the server-side 5 second timer.
+- **Logout/game-over timer**: aligns the visible logout countdown with the shortened server logout delay.
+- **Subaction sysmsg cooldown**: rate-limits sysmsgs `5228..5237` to one visible message every 20 seconds per player name instead of removing them completely.
+- **Experience view fix**: prevents the client from displaying experience values multiplied by ten and ignores locale-specific EXP multiplication where applicable.
+
+### Resolution And Graphics
+
+- Adds `1366x768`, `1400x900`, `2560x1080`, `2560x1440`, `3840x1080`, `3840x2160`, and `3440x1440`.
+- Expands option-screen resolution rendering, selection, saving, and apply behavior.
+- Reuses stock large-layout positioning branches so UI placement remains stable at wider resolutions.
+- Caches gamma/distance/float option values to prevent the expanded resolution table from corrupting option sliders.
+- Applies camera limit from the global `g_cameraLimit` value.
+- Applies costume, pet, wing, and dungeon shadow/lag workarounds used by the current visual setup.
+
+### Discord And Debug Overlay
+
+- Discord RPC initializes with the static application id/message defined in `src/discord.cpp`.
+- The ImGui layer is present as a minimal, mostly passive overlay foundation. `F8` toggles the placeholder interactive window and `F7` toggles the realtime testing bundle.
+- The ImGui layer is not used for permanent production UI where native UI hooks exist.
 
 ## Asset Notes
 
 - Interface assets used by the PNG redirect must exist in the client `Data/interface` tree.
 - Raid button assets are expected as PNG.
+- Battleground uses `main_stats_pvp_button.png`.
 - The client intentionally keeps icon assets outside the broad PNG redirect unless a feature explicitly handles them.
+- Custom recreation rune UI acceptance is only client-side placement. Server behavior is implemented in `sdev`.
 
 ## Removed Or Disabled Work
 
 - The experimental Item Mall vehicle preview patch was removed because it did not provide reliable behavior.
 - The large cooldown-number overlay experiment was removed because it had too many rendering defects.
-- Experimental map select-screen WLD rendering work is not part of this module.
+- Map select-screen WLD rendering work is not part of this module.

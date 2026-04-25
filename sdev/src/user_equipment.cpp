@@ -17,6 +17,9 @@ namespace user_equipment
 {
     bool enable_slot(CUser* user, CItem* item, ItemInfo* itemInfo, int itemSlot)
     {
+        if (!user || !item || !itemInfo)
+            return false;
+
         auto itemType = static_cast<ItemType>(itemInfo->type);
         auto realType = itemInfo->realType;
 
@@ -86,6 +89,9 @@ namespace user_equipment
 
     void init(CUser* user)
     {
+        if (!user)
+            return;
+
         user->initStatusFlag = true;
 
         for (const auto& [slot, item] : std::views::enumerate(
@@ -109,6 +115,9 @@ namespace user_equipment
     /// </summary>
     void send_0x307(CUser* user, CUser* target)
     {
+        if (!user || !target)
+            return;
+
         GameGetInfoUserItemsOutgoing<GetInfoItemUnit_EP5, 17> outgoing{};
         outgoing.itemCount = 0;
 

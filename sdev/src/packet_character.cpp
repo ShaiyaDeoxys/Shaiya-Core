@@ -113,8 +113,9 @@ namespace packet_character
         auto it = g_LapisianEnchantAddValue->step.cbegin();
         auto last = g_LapisianEnchantAddValue->step.cend();
         auto dest = outgoing.weaponStep.begin();
+        auto destEnd = outgoing.weaponStep.end();
 
-        for (; it != last; ++it, ++dest)
+        for (; it != last && dest != destEnd; ++it, ++dest)
             *dest = it->weapon;
 
         NetworkHelper::Send(user, &outgoing, sizeof(GameWeaponStepOutgoing));

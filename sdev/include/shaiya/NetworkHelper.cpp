@@ -10,25 +10,40 @@ using namespace shaiya;
 
 void NetworkHelper::Send(CUser* user, void* packet, int length)
 {
+    if (!user || !packet || length <= 0)
+        return;
+
     SConnection::Send(user, packet, length);
 }
 
 void NetworkHelper::SendDBAgent(void* packet, int length)
 {
+    if (!g_pClientToDBAgent || !packet || length <= 0)
+        return;
+
     SConnectionTBaseReconnect::Send(g_pClientToDBAgent, packet, length);
 }
 
 void NetworkHelper::SendGameLog(void* packet, int length)
 {
+    if (!g_pClientToGameLog || !packet || length <= 0)
+        return;
+
     SConnectionTBaseReconnect::Send(g_pClientToGameLog, packet, length);
 }
 
 void NetworkHelper::SendSession(void* packet, int length)
 {
+    if (!g_pClientToMgr || !packet || length <= 0)
+        return;
+
     SConnectionTBaseReconnect::Send(g_pClientToMgr, packet, length);
 }
 
 void NetworkHelper::SendUserLog(void* packet, int length)
 {
+    if (!g_pClientToLog || !packet || length <= 0)
+        return;
+
     SConnectionTBaseReconnect::Send(g_pClientToLog, packet, length);
 }

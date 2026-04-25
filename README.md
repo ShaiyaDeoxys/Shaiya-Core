@@ -46,7 +46,7 @@ Runtime behavior can depend on external files such as `CONFIG.INI`, PNG interfac
 
 ## Stability Notes
 
-Most patches are intentionally small and grouped by feature in code comments. Experimental or broken work should stay disabled and be documented as future work before the repository is published.
+Most patches are intentionally small and grouped by feature in code comments. Unfinished or unstable work should stay disabled and be documented as future work before the repository is published.
 
 Current known disabled future work:
 

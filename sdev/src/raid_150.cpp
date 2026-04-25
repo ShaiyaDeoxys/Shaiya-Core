@@ -1,8 +1,12 @@
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 
 #include <util/util.h>
 #include "include/main.h"
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 
 namespace
 {
@@ -30,7 +34,41 @@ namespace
         { kPartyUsers30, kPartyUsers150 },
     };
 
-    void patch_raid150_operand(std::uint32_t address)
+    enum class OperandState
+    {
+        missing,
+        stock,
+        patched,
+    };
+
+    struct OperandLocation
+    {
+        const OperandPatch* patch;
+        std::size_t offset;
+        std::size_t size;
+        OperandState state;
+    };
+
+    struct DetourPatch
+    {
+        std::uint32_t address;
+        void* destination;
+        std::size_t size;
+        std::uint8_t expected[7];
+    };
+
+    bool matches_bytes(const std::uint8_t* data, const std::uint8_t* expected, std::size_t size)
+    {
+        for (std::size_t i = 0; i < size; ++i)
+        {
+            if (data[i] != expected[i])
+                return false;
+        }
+
+        return true;
+    }
+
+    bool find_raid150_operand(std::uint32_t address, OperandLocation& location)
     {
         // Raid 150 component:
         // Most of the CE table only moves CParty fields from the stock 30-player
@@ -49,13 +87,16 @@ namespace
 
             for (std::size_t i = 0; i + sizeof(std::uint32_t) <= kScanBytes; ++i)
             {
-                if (instruction[i] == oldBytes[0] &&
-                    instruction[i + 1] == oldBytes[1] &&
-                    instruction[i + 2] == oldBytes[2] &&
-                    instruction[i + 3] == oldBytes[3])
+                if (matches_bytes(instruction + i, oldBytes, sizeof(std::uint32_t)))
                 {
-                    util::write_memory(instruction + i, newBytes, sizeof(std::uint32_t));
-                    return;
+                    location = { &patch, i, sizeof(std::uint32_t), OperandState::stock };
+                    return true;
+                }
+
+                if (matches_bytes(instruction + i, newBytes, sizeof(std::uint32_t)))
+                {
+                    location = { &patch, i, sizeof(std::uint32_t), OperandState::patched };
+                    return true;
                 }
             }
 
@@ -64,15 +105,55 @@ namespace
             // high byte is already zero in both old and new offsets.
             for (std::size_t i = 0; i + 3 <= kScanBytes; ++i)
             {
-                if (instruction[i] == oldBytes[0] &&
-                    instruction[i + 1] == oldBytes[1] &&
-                    instruction[i + 2] == oldBytes[2])
+                if (matches_bytes(instruction + i, oldBytes, 3))
                 {
-                    util::write_memory(instruction + i, newBytes, 3);
-                    return;
+                    location = { &patch, i, 3, OperandState::stock };
+                    return true;
+                }
+
+                if (matches_bytes(instruction + i, newBytes, 3))
+                {
+                    location = { &patch, i, 3, OperandState::patched };
+                    return true;
                 }
             }
         }
+
+        location = {};
+        location.state = OperandState::missing;
+        return false;
+    }
+
+    void debug_raid150(const char* message)
+    {
+        OutputDebugStringA("[Shaiya-Core][raid_150] ");
+        OutputDebugStringA(message);
+        OutputDebugStringA("\n");
+    }
+
+    void debug_raid150_address(const char* message, std::uint32_t address)
+    {
+        char buffer[128]{};
+        std::snprintf(buffer, sizeof(buffer), "%s 0x%08X", message, address);
+        debug_raid150(buffer);
+    }
+
+    bool patch_raid150_operand(std::uint32_t address, const OperandLocation& location)
+    {
+        if (location.state == OperandState::patched)
+            return true;
+
+        const auto* newBytes = reinterpret_cast<const std::uint8_t*>(&location.patch->to);
+        return util::write_memory(
+            reinterpret_cast<void*>(address + location.offset),
+            newBytes,
+            location.size);
+    }
+
+    bool validate_detour_site(const DetourPatch& patch)
+    {
+        auto* instruction = reinterpret_cast<const std::uint8_t*>(patch.address);
+        return matches_bytes(instruction, patch.expected, patch.size);
     }
 
     unsigned u0x44E563 = 0x44E563;
@@ -303,19 +384,60 @@ void hook::raid_150()
     };
 
     for (auto address : directPatchAddresses)
-        patch_raid150_operand(address);
+    {
+        OperandLocation location{};
+        if (!find_raid150_operand(address, location))
+        {
+            debug_raid150_address("aborting; unsupported ps_game.exe at", address);
+            return;
+        }
+    }
 
-    util::detour((void*)0x44E570, raid150_0x44E570, 5);
-    util::detour((void*)0x44E701, raid150_0x44E701, 5);
-    util::detour((void*)0x44ED22, raid150_0x44ED22, 5);
-    util::detour((void*)0x44ED66, raid150_0x44ED66, 5);
-    util::detour((void*)0x44EDB0, raid150_0x44EDB0, 5);
-    util::detour((void*)0x44F128, raid150_0x44F128, 7);
-    util::detour((void*)0x44F5A6, raid150_0x44F5A6, 5);
-    util::detour((void*)0x4568FA, raid150_0x4568FA, 5);
-    util::detour((void*)0x46589B, raid150_0x46589B, 5);
-    util::detour((void*)0x4659BC, raid150_0x4659BC, 5);
-    util::detour((void*)0x4757F7, raid150_0x4757F7, 6);
-    util::detour((void*)0x4A1DFF, raid150_0x4A1DFF, 5);
-    util::detour((void*)0x4A1ED8, raid150_0x4A1ED8, 5);
+    for (auto address : directPatchAddresses)
+    {
+        OperandLocation location{};
+        find_raid150_operand(address, location);
+        if (!patch_raid150_operand(address, location))
+        {
+            debug_raid150_address("aborting; failed to write operand at", address);
+            return;
+        }
+    }
+
+    const DetourPatch detourPatches[]
+    {
+        { 0x0044E570, raid150_0x44E570, 5, { 0x83, 0xF8, 0x1E, 0x7C, 0xEE } },
+        { 0x0044E701, raid150_0x44E701, 5, { 0x83, 0xF8, 0x1E, 0x7C, 0xEE } },
+        { 0x0044ED22, raid150_0x44ED22, 5, { 0x83, 0xF9, 0x1E, 0x7C, 0xEC } },
+        { 0x0044ED66, raid150_0x44ED66, 5, { 0x83, 0xF8, 0x1E, 0x7C, 0xED } },
+        { 0x0044EDB0, raid150_0x44EDB0, 5, { 0x83, 0x7D, 0x10, 0x1E, 0x56 } },
+        { 0x0044F128, raid150_0x44F128, 7, { 0x83, 0xF8, 0x1E, 0x89, 0x44, 0x24, 0x24 } },
+        { 0x0044F5A6, raid150_0x44F5A6, 5, { 0x83, 0xF8, 0x1E, 0x7C, 0xDC } },
+        { 0x004568FA, raid150_0x4568FA, 5, { 0x83, 0xF9, 0x1E, 0x7C, 0xF3 } },
+        { 0x0046589B, raid150_0x46589B, 5, { 0x83, 0xFE, 0x1E, 0x7E, 0x04 } },
+        { 0x004659BC, raid150_0x4659BC, 5, { 0x83, 0xFE, 0x1E, 0x7E, 0x04 } },
+        { 0x004757F7, raid150_0x4757F7, 6, { 0x83, 0x78, 0x10, 0x1E, 0x7C, 0x10 } },
+        { 0x004A1DFF, raid150_0x4A1DFF, 5, { 0x83, 0xFE, 0x1E, 0x7E, 0x04 } },
+        { 0x004A1ED8, raid150_0x4A1ED8, 5, { 0x83, 0xFE, 0x1E, 0x7E, 0x04 } },
+    };
+
+    for (const auto& patch : detourPatches)
+    {
+        if (!validate_detour_site(patch))
+        {
+            debug_raid150_address("aborting; unexpected detour bytes at", patch.address);
+            return;
+        }
+    }
+
+    for (const auto& patch : detourPatches)
+    {
+        if (!util::detour(reinterpret_cast<void*>(patch.address), patch.destination, patch.size))
+        {
+            debug_raid150_address("aborting; failed to install detour at", patch.address);
+            return;
+        }
+    }
+
+    debug_raid150("installed");
 }
