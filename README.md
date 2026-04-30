@@ -46,14 +46,6 @@ Client `CONFIG.INI` options include `ADVANCED/SKIPSERVERSELECTION` and `ADVANCED
 - Server features are documented in `sdev/README.md`.
 - Shared packet/structure notes are documented in `shaiya/README.md`.
 
-## Stability Notes
-
-Most patches are intentionally small and grouped by feature in code comments. Unfinished or unstable work should stay disabled and be documented as future work before the repository is published.
-
-Current known disabled future work:
-
-- Custom deterministic recreation runes: marked in code as `Future feature - broken right now`.
-
 ## License
 
 This project's own code is licensed under the BSD 3-Clause License. See `LICENSE`.
