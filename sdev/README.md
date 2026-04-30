@@ -55,6 +55,7 @@ This section maps the active server-side features installed by `Main()` in `src/
 - **`SetItem.SData`**: loads decrypted server-side set/synergy data and resets stale synergy state on reload.
 - **`ChaoticSquare.ini`**: loads item synthesis recipes and builds the chaotic-square result tables used by the packet handlers.
 - **`RewardItem.ini`**: loads the account-wide reward item event list. The server supports up to the configured `RewardItemUnit` list size and ignores malformed rows.
+- **`Roulette.ini`**: loads the Aries-style roulette token and up to 10 rewards, then normalizes chances to a 10000-point table.
 
 ### Security And Stability
 
@@ -159,6 +160,7 @@ This section maps the active server-side features installed by `Main()` in `src/
 - **Name availability `0x119` / DB `0x40D`**: forwards validated name checks to dbAgent and returns the availability result.
 - **Warehouse `0x711`**: sends 6.4 bank item units in chunks that stay under the 2048-byte packet limit. Warehouse access is read-only in this path.
 - **Reward item event `0x407` / `0x1F00`**: tracks account-wide reward progress and notifies the client when a reward can be claimed.
+- **Roulette list/spin `0x834` / `0x835`**: sends roulette config, validates the configured token, rejects missing capacity, consumes one token at spin start, and creates the selected reward once the spin completes.
 - **Main interface `0x233`**: handles battleground movement requests from the client.
 - **PC `0x55A`**: handles town move scroll requests with explicit gate index validation.
 - **MyShop `0x230B`**: converts shop item lists to EP6.4 units.
@@ -306,6 +308,41 @@ auto timeout = GetTickCount() + ((minutes * 60000) + 15000);
 | ES     | 171   | :x:                |
 | PT     | 182   | :white_check_mark: |
 | PT     | 189   | :white_check_mark: |
+
+## Roulette
+
+`F8` opens the client ImGui user panel. The roulette section is visible to all players, requests the roulette list with packet `0x834`, and sends spin requests with packet `0x835`.
+
+The server requires the configured token item per roll. A roll is rejected if the player has no token, if a spin is already pending, or if the inventory cannot accept the selected reward before the token is consumed.
+
+On a valid spin, the server chooses and stores one pending reward, consumes exactly one configured token cost at spin start, and delivers the reward after the spin delay through the same `CUser::ItemCreate` path used by the reward-item system. Pending spins are guarded so a player cannot receive multiple rewards from one token. If the inventory becomes full before delivery, the pending reward remains queued instead of consuming another token or creating duplicates.
+
+### Roulette.ini
+
+Use `Data/Roulette.ini` beside the game service executable. The format matches the Aries roulette integration:
+
+```ini
+[Info]
+TokenItemID=100200
+TokenCount=1
+
+[Reward_1]
+ItemID=100001
+Count=1
+Chance=5000
+
+[Reward_2]
+ItemID=100002
+Count=1
+Chance=3000
+
+[Reward_3]
+ItemID=100003
+Count=1
+Chance=2000
+```
+
+The server loads at most 10 rewards and normalizes `Chance` values to a 10000-point table, just like Aries.
 
 ## Alchemy
 
@@ -607,7 +644,7 @@ gatekeeper in map `2`.
 
 ## Warehouse Items
 
-I received several reports over the course of this project about missing warehouse items. I just want to provide evidence that I believe will absolve me of this shit.
+I received several reports over the course of this project about missing warehouse items. This section documents the malformed packet pattern behind those reports.
 
 ### Research
 

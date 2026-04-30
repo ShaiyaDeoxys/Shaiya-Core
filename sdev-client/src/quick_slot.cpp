@@ -1,4 +1,5 @@
 #include <format>
+#include <cstdlib>
 #include <string>
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -11,6 +12,16 @@ using namespace shaiya;
 
 namespace quick_slot
 {
+    const char* get_interface_data_path()
+    {
+        char buffer[16]{};
+        GetPrivateProfileStringA("ADVANCED", "UI", "", buffer, static_cast<DWORD>(sizeof(buffer)), g_var->iniFileName.data());
+        if (buffer[0] == '\0')
+            GetPrivateProfileStringA("CONFIG", "UI", "0", buffer, static_cast<DWORD>(sizeof(buffer)), g_var->iniFileName.data());
+
+        return std::atoi(buffer) == 1 ? "data/interfep6" : "data/interface";
+    }
+
     void get_configuration(Unknown* unknown)
     {
         auto section = std::format("INTERFACE_{}X{}", g_var->viewport.Width, g_var->viewport.Height);
@@ -23,7 +34,7 @@ namespace quick_slot
         std::string str(MAX_PATH, 0);
         GetPrivateProfileStringA(section.c_str(), "QUICKSLOTPLUS_PLUS", "", str.data(), str.size(), g_var->iniFileName.data());
         unknown->quickSlot2->plus = str.compare(0, 4, "TRUE") == 0;
-        CTexture::CreateFromFile(&unknown->quickSlot2->plusImage, "data/interface", "main_slot_plus.tga", 32, 64);
+        CTexture::CreateFromFile(&unknown->quickSlot2->plusImage, get_interface_data_path(), "main_slot_plus.tga", 32, 64);
     }
 
     void set_configuration(CQuickSlot* quickSlot)

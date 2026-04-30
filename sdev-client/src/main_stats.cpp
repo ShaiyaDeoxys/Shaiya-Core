@@ -1,4 +1,5 @@
 #include <array>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <ranges>
@@ -28,6 +29,7 @@ namespace
 
     constexpr int kButtonX = 38;
     constexpr int kButtonY = 78;
+    constexpr int kCustomUiButtonYOffset = -22;
     constexpr int kButtonWidth = 165;
     constexpr int kButtonHeight = 30;
 
@@ -36,6 +38,8 @@ namespace
     bool g_buttonInitialized = false;
     bool g_mouseWasDown = false;
     bool g_buttonPressStartedInside = false;
+    bool g_customUiLoaded = false;
+    bool g_customUiEnabled = false;
     CButton g_battlefieldButton{};
     CMessage* g_message = nullptr;
     D2D_POINT_2U g_anchor{};
@@ -46,6 +50,42 @@ namespace
         auto count = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
         buffer.resize(count);
         return std::filesystem::path(buffer).remove_filename();
+    }
+
+    std::string get_client_config_ini_path()
+    {
+        char moduleFileName[MAX_PATH]{};
+        if (!GetModuleFileNameA(nullptr, moduleFileName, MAX_PATH))
+            return ".\\CONFIG.ini";
+
+        std::string path(moduleFileName);
+        auto slashPos = path.find_last_of("\\/");
+        if (slashPos != std::string::npos)
+            path.resize(slashPos + 1);
+
+        path += "CONFIG.ini";
+        return path;
+    }
+
+    bool is_custom_ui_enabled()
+    {
+        if (g_customUiLoaded)
+            return g_customUiEnabled;
+
+        char buffer[16]{};
+        auto iniPath = get_client_config_ini_path();
+        GetPrivateProfileStringA("ADVANCED", "UI", "", buffer, static_cast<DWORD>(sizeof(buffer)), iniPath.c_str());
+        if (buffer[0] == '\0')
+            GetPrivateProfileStringA("CONFIG", "UI", "0", buffer, static_cast<DWORD>(sizeof(buffer)), iniPath.c_str());
+
+        g_customUiEnabled = std::atoi(buffer) == 1;
+        g_customUiLoaded = true;
+        return g_customUiEnabled;
+    }
+
+    int get_button_y_offset()
+    {
+        return is_custom_ui_enabled() ? kCustomUiButtonYOffset : 0;
     }
 
     std::filesystem::path find_battlefield_client_ini()
@@ -143,7 +183,7 @@ namespace
             return false;
 
         auto x = static_cast<int>(g_anchor.x) + kButtonX;
-        auto y = static_cast<int>(g_anchor.y) + kButtonY;
+        auto y = static_cast<int>(g_anchor.y) + kButtonY + get_button_y_offset();
         return cursor.x >= x && cursor.x <= x + kButtonWidth &&
             cursor.y >= y && cursor.y <= y + kButtonHeight;
     }
@@ -207,7 +247,7 @@ namespace
         init_battlefield_button();
 
         g_anchor = window->pos;
-        CButton::Draw(&g_battlefieldButton, g_anchor.x, g_anchor.y);
+        CButton::Draw(&g_battlefieldButton, g_anchor.x, g_anchor.y + get_button_y_offset());
 
         auto mouseDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
         auto cursorOverButton = is_cursor_over_button();

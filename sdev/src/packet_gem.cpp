@@ -22,6 +22,7 @@
 #include "include/shaiya/ItemPredicate.h"
 #include "include/shaiya/ItemSynthesis.h"
 #include "include/shaiya/NetworkHelper.h"
+#include "include/shaiya/Roulette.h"
 #include "include/shaiya/UserHelper.h"
 using namespace shaiya;
 
@@ -884,8 +885,17 @@ namespace packet_gem
             handler_0x833(user, reinterpret_cast<GameItemFreeSynthesisIncoming*>(packet));
             break;
         }
+        case 0x834:
+        {
+            roulette::send_list(user);
+            break;
+        }
+        case 0x835:
+        {
+            roulette::handle_spin(user);
+            break;
+        }
         default:
-            SConnection::Close(user, 9, 0);
             break;
         }
     }

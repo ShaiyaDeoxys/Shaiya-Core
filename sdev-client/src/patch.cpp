@@ -9,6 +9,7 @@
 #include "include/main.h"
 #include "include/shaiya/Static.h"
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 
 namespace
@@ -218,6 +219,29 @@ namespace
     {
         auto iniPath = get_client_config_ini_path();
         return GetPrivateProfileIntA("ADVANCED", "SKIPUPDATER", 0, iniPath.c_str()) != 0;
+    }
+
+    bool load_skip_server_selection_setting()
+    {
+        auto iniPath = get_client_config_ini_path();
+        return GetPrivateProfileIntA("ADVANCED", "SKIPSERVERSELECTION", 1, iniPath.c_str()) != 0;
+    }
+
+    bool load_skip_mode_selection_setting()
+    {
+        auto iniPath = get_client_config_ini_path();
+        return GetPrivateProfileIntA("ADVANCED", "SKIPMODESELECTION", 1, iniPath.c_str()) != 0;
+    }
+
+    bool load_custom_ui_setting()
+    {
+        auto iniPath = get_client_config_ini_path();
+        char buffer[16]{};
+        GetPrivateProfileStringA("ADVANCED", "UI", "", buffer, static_cast<DWORD>(sizeof(buffer)), iniPath.c_str());
+        if (buffer[0] == '\0')
+            GetPrivateProfileStringA("CONFIG", "UI", "0", buffer, static_cast<DWORD>(sizeof(buffer)), iniPath.c_str());
+
+        return std::atoi(buffer) == 1;
     }
 
     std::string trim_copy(std::string value)
@@ -635,6 +659,63 @@ namespace
                 // points to a .png file instead of .tga/.jpg.
                 constexpr char pngExtension[] = ".png";
                 util::write_memory(moduleBase + start + length - 4, pngExtension, 4);
+            }
+        }
+    }
+
+    bool should_redirect_interface_folder_string(const std::string& lowerString)
+    {
+        return lowerString == "interface"
+            || lowerString.starts_with("interface\\")
+            || lowerString.starts_with("interface/")
+            || lowerString.find("data/interface") != std::string::npos
+            || lowerString.find("data\\interface") != std::string::npos
+            || lowerString.find("/interface/") != std::string::npos
+            || lowerString.find("\\interface\\") != std::string::npos;
+    }
+
+    void patch_module_interface_folder_to_custom()
+    {
+        auto moduleBase = reinterpret_cast<std::uint8_t*>(GetModuleHandleA(nullptr));
+        if (!moduleBase)
+            return;
+
+        auto dosHeader = reinterpret_cast<IMAGE_DOS_HEADER*>(moduleBase);
+        if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE)
+            return;
+
+        auto ntHeaders = reinterpret_cast<IMAGE_NT_HEADERS*>(moduleBase + dosHeader->e_lfanew);
+        if (ntHeaders->Signature != IMAGE_NT_SIGNATURE)
+            return;
+
+        auto imageSize = static_cast<std::size_t>(ntHeaders->OptionalHeader.SizeOfImage);
+        for (std::size_t i = 0; i < imageSize; ++i)
+        {
+            auto current = moduleBase[i];
+            if (current < 0x20 || current > 0x7E)
+                continue;
+
+            auto start = i;
+            while (i < imageSize && moduleBase[i] >= 0x20 && moduleBase[i] <= 0x7E)
+                ++i;
+
+            if (i >= imageSize || moduleBase[i] != 0)
+                continue;
+
+            auto length = i - start;
+            if (length < 9)
+                continue;
+
+            std::string candidate(reinterpret_cast<char*>(moduleBase + start), length);
+            auto lowerCandidate = to_lower_copy(candidate);
+            if (!should_redirect_interface_folder_string(lowerCandidate))
+                continue;
+
+            std::size_t pos = 0;
+            while ((pos = lowerCandidate.find("interface", pos)) != std::string::npos)
+            {
+                util::write_memory(moduleBase + start + pos, "interfep6", 9);
+                pos += 9;
             }
         }
     }
@@ -2632,6 +2713,15 @@ void hook::patch()
     static constexpr unsigned char kLoginSplashSkipRenderBlock[] = {0xE9, 0xD8, 0x02, 0x00, 0x00};
     static constexpr unsigned char kLoginSplashSkipAfterResourceInit[] = {0xE9, 0x96, 0x02, 0x00, 0x00};
 
+    const auto customUiEnabled = load_custom_ui_setting();
+    if (customUiEnabled)
+    {
+        // ADVANCED -> UI=1 redirects the stock data/interface folder to
+        // data/interfep6. The folder names have the same length, so this can be
+        // patched in-place without relocating Game.exe strings.
+        patch_module_interface_folder_to_custom();
+    }
+
     if (kEnableInterfacePngRedirect)
     {
         // PNG interface support.
@@ -2661,16 +2751,19 @@ void hook::patch()
     // address when present. This updates the stock login server string only.
     patch_login_server_ip_from_config();
 
-    // Skip server selection screen.
-    // When there is exactly one server in the login server list, choose it
-    // automatically after account login and continue to character select.
-    // 0050CA10 keeps the stock selection/connect path. 0050BEA0 only hides
-    // the single-server panel render so this behaves like a skip instead of an
-    // obvious auto-click. The network-list handler is too early and can leave
-    // login stuck, so do not fire the selection from there.
-    util::detour((void*)0x50CA10, naked_skip_server_selection, 5);
-    util::detour((void*)0x50BEA0, naked_hide_single_server_selection_render, 6);
-    util::detour((void*)0x50D164, naked_auto_select_single_server_after_init, 9);
+    if (load_skip_server_selection_setting())
+    {
+        // Skip server selection screen.
+        // When there is exactly one server in the login server list, choose it
+        // automatically after account login and continue to character select.
+        // 0050CA10 keeps the stock selection/connect path. 0050BEA0 only hides
+        // the single-server panel render so this behaves like a skip instead of
+        // an obvious auto-click. The network-list handler is too early and can
+        // leave login stuck, so do not fire the selection from there.
+        util::detour((void*)0x50CA10, naked_skip_server_selection, 5);
+        util::detour((void*)0x50BEA0, naked_hide_single_server_selection_render, 6);
+        util::detour((void*)0x50D164, naked_auto_select_single_server_after_init, 9);
+    }
 
     // dungeon wings shadow workaround
     util::detour((void*)0x41F9C0, naked_0x41F9C0, 9);
@@ -2733,14 +2826,17 @@ void hook::patch()
     auto logoutVisualSecondsAddress = reinterpret_cast<std::uint32_t>(&gLogoutGameOverVisualSeconds);
     std::memcpy(&logoutVisualInitPatch[2], &logoutVisualSecondsAddress, sizeof(logoutVisualSecondsAddress));
     util::write_memory((void*)0x5223A9, logoutVisualInitPatch, sizeof(logoutVisualInitPatch));
-    // Login to character selection delay.
-    // Keep the safe stock update/selection path, but shorten the hidden
-    // single-server bridge timeout from the stock 30000ms to 1000ms.
-    // Do not trigger CSelectServer::OnSelect from render/network-list handlers:
-    // those contexts can run before the login bridge is ready and leave login
-    // stuck.
-    util::write_memory((void*)0x50C708, &kLoginToCharacterSelectionDelayMs, sizeof(kLoginToCharacterSelectionDelayMs));
-    util::write_memory((void*)0x50C869, &kLoginToCharacterSelectionDelayMs, sizeof(kLoginToCharacterSelectionDelayMs));
+    if (load_skip_server_selection_setting())
+    {
+        // Login to character selection delay.
+        // Keep the safe stock update/selection path, but shorten the hidden
+        // single-server bridge timeout from the stock 30000ms to 1000ms.
+        // Do not trigger CSelectServer::OnSelect from render/network-list handlers:
+        // those contexts can run before the login bridge is ready and leave login
+        // stuck.
+        util::write_memory((void*)0x50C708, &kLoginToCharacterSelectionDelayMs, sizeof(kLoginToCharacterSelectionDelayMs));
+        util::write_memory((void*)0x50C869, &kLoginToCharacterSelectionDelayMs, sizeof(kLoginToCharacterSelectionDelayMs));
+    }
     // Remove level up messages.
     // Keep the stock levelup_skillup.tga/levelup_statusup.tga creation flow
     // intact, but force their 256x256 render size arguments to 0x0 so the
@@ -2775,13 +2871,16 @@ void hook::patch()
     // bypass as a compatibility fallback while the real creation validation is
     // handled by the server/dbagent side.
     util::write_memory((void*)0x472A12, kTreatCharacterCreateResultBusyAsSuccess, sizeof(kTreatCharacterCreateResultBusyAsSuccess));
-    // Skip mode selection screen and force Ultimate Mode by default.
-    // The first detour skips the mode-selection UI block. The inline patch
-    // replaces the later mode validation with:
-    //   mov dword ptr [esi+0x24C8], 3
-    // so character creation proceeds as UM without asking the user to choose.
-    util::detour((void*)0x471D4E, (void*)0x471DF7, 169);
-    util::write_memory((void*)0x472907, kForceUltimateModeOnCharacterCreate, sizeof(kForceUltimateModeOnCharacterCreate));
+    if (load_skip_mode_selection_setting())
+    {
+        // Skip mode selection screen and force Ultimate Mode by default.
+        // The first detour skips the mode-selection UI block. The inline patch
+        // replaces the later mode validation with:
+        //   mov dword ptr [esi+0x24C8], 3
+        // so character creation proceeds as UM without asking the user to choose.
+        util::detour((void*)0x471D4E, (void*)0x471DF7, 169);
+        util::write_memory((void*)0x472907, kForceUltimateModeOnCharacterCreate, sizeof(kForceUltimateModeOnCharacterCreate));
+    }
     patch_stats_window_colors();
     // Chat UTF-8 support without changing the client's global LoginVersion.
     // The stock Vietnam branch enables UTF-8 display, but it also takes over
@@ -2831,34 +2930,38 @@ void hook::patch()
     util::write_memory((void*)0x43493A, kPushMinusOne, sizeof(kPushMinusOne));
     // Remove vanilla GM H-key HP viewer.
     util::write_memory((void*)0x534817, 0x1, 1);
-    // EP4 UI support.
-    // Applies the EP4 HUD/layout package while intentionally leaving inventory
-    // and the existing server-time text format untouched.
-    util::detour((void*)0x53201E, naked_ep4_main_stats, 6);
-    util::detour((void*)0x532345, naked_ep4_main_stats_bar_hp, 6);
-    util::detour((void*)0x532481, naked_ep4_main_stats_bar_mp, 6);
-    util::detour((void*)0x5325C6, naked_ep4_main_stats_bar_sp, 6);
-    util::detour((void*)0x53289F, naked_ep4_main_stats_level, 5);
-    util::detour((void*)0x5350E5, naked_ep4_enemy_bar, 6);
-    util::detour((void*)0x532BBF, naked_ep4_enemy_bar_bg, 7);
-    util::detour((void*)0x534F24, naked_ep4_enemy_bar_buff, 10);
-    util::detour((void*)0x534F48, naked_ep4_enemy_bar_debuff, 5);
-    util::detour((void*)0x534F57, naked_ep4_enemy_bar_buff_mouse_over, 5);
-    util::detour((void*)0x4DE685, naked_ep4_main_map_button, 6);
-    util::detour((void*)0x4DF4AD, naked_ep4_main_map_bg, 7);
-    util::detour((void*)0x4E1255, naked_ep4_map_clock, 5);
-    util::detour((void*)0x4DDEDA, naked_ep4_main_map_servertime, 6);
-    util::detour((void*)0x4D9A1C, naked_ep4_arrow_size_map, 6);
-    util::detour((void*)0x4E055A, naked_ep4_arrow_size_minimap, 6);
-    util::detour((void*)0x4D7A47, naked_ep4_load_arrow_map, 5);
-    util::detour((void*)0x4DE4FB, naked_ep4_load_arrow_minimap, 5);
-    util::detour((void*)0x493CBE, naked_ep4_main_bottom, 6);
-    util::detour((void*)0x49354C, naked_ep4_main_bottom_8, 6);
-    util::detour((void*)0x49440F, naked_ep4_main_bottom_12, 6);
-    // Keep EXP/Bless bars stock: do not patch main_bottom_bar/main_bottom_bar8/main_bottom_bar12.
-    util::detour((void*)0x51F41A, naked_ep4_option_main_button, 6);
-    util::detour((void*)0x4CFE5A, naked_ep4_loadbar, 6);
-    util::detour((void*)0x493362, (void*)0x493442, 7);
+    if (!customUiEnabled)
+    {
+        // EP4 UI support.
+        // Applies the EP4 HUD/layout package while intentionally leaving inventory
+        // and the existing server-time text format untouched. Disabled for
+        // ADVANCED -> UI=1 so the custom interfep6 layout stays coherent.
+        util::detour((void*)0x53201E, naked_ep4_main_stats, 6);
+        util::detour((void*)0x532345, naked_ep4_main_stats_bar_hp, 6);
+        util::detour((void*)0x532481, naked_ep4_main_stats_bar_mp, 6);
+        util::detour((void*)0x5325C6, naked_ep4_main_stats_bar_sp, 6);
+        util::detour((void*)0x53289F, naked_ep4_main_stats_level, 5);
+        util::detour((void*)0x5350E5, naked_ep4_enemy_bar, 6);
+        util::detour((void*)0x532BBF, naked_ep4_enemy_bar_bg, 7);
+        util::detour((void*)0x534F24, naked_ep4_enemy_bar_buff, 10);
+        util::detour((void*)0x534F48, naked_ep4_enemy_bar_debuff, 5);
+        util::detour((void*)0x534F57, naked_ep4_enemy_bar_buff_mouse_over, 5);
+        util::detour((void*)0x4DE685, naked_ep4_main_map_button, 6);
+        util::detour((void*)0x4DF4AD, naked_ep4_main_map_bg, 7);
+        util::detour((void*)0x4E1255, naked_ep4_map_clock, 5);
+        util::detour((void*)0x4DDEDA, naked_ep4_main_map_servertime, 6);
+        util::detour((void*)0x4D9A1C, naked_ep4_arrow_size_map, 6);
+        util::detour((void*)0x4E055A, naked_ep4_arrow_size_minimap, 6);
+        util::detour((void*)0x4D7A47, naked_ep4_load_arrow_map, 5);
+        util::detour((void*)0x4DE4FB, naked_ep4_load_arrow_minimap, 5);
+        util::detour((void*)0x493CBE, naked_ep4_main_bottom, 6);
+        util::detour((void*)0x49354C, naked_ep4_main_bottom_8, 6);
+        util::detour((void*)0x49440F, naked_ep4_main_bottom_12, 6);
+        // Keep EXP/Bless bars stock: do not patch main_bottom_bar/main_bottom_bar8/main_bottom_bar12.
+        util::detour((void*)0x51F41A, naked_ep4_option_main_button, 6);
+        util::detour((void*)0x4CFE5A, naked_ep4_loadbar, 6);
+        util::detour((void*)0x493362, (void*)0x493442, 7);
+    }
     // costume lag workaround
     util::write_memory((void*)0x56F38D, 0x75, 1);
     util::write_memory((void*)0x583DED, 0x75, 1);

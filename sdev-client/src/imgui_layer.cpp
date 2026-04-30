@@ -2,9 +2,11 @@
 #include <windows.h>
 #include <dwmapi.h>
 #include <d3d9.h>
+#include <algorithm>
 #include <atomic>
 #include <array>
 #include <cstdio>
+#include <cmath>
 #include <string>
 #pragma comment(lib, "d3d9.lib")
 #pragma comment(lib, "dwmapi.lib")
@@ -14,6 +16,7 @@
 #include "include/main.h"
 #include "include/shaiya/CCharacter.h"
 #include "include/shaiya/CPlayerData.h"
+#include "include/shaiya/Roulette.h"
 #include "include/shaiya/CWorldMgr.h"
 #include "include/shaiya/Static.h"
 using namespace shaiya;
@@ -79,7 +82,9 @@ namespace imgui_layer
     inline D3DPRESENT_PARAMETERS g_presentParameters{};
     inline RECT g_placeholderWindowRect{};
     inline ImVec2 g_placeholderPosition = ImVec2(80.0f, 80.0f);
-    inline ImVec2 g_placeholderSize = ImVec2(360.0f, 260.0f);
+    inline ImVec2 g_placeholderSize = ImVec2(460.0f, 380.0f);
+    inline DWORD g_lastRouletteRollTick = 0;
+    inline DWORD g_lastRouletteListTick = 0;
 
     float read_imgui_float(const char* key, float fallback)
     {
@@ -133,13 +138,156 @@ namespace imgui_layer
             && g_pPlayerData->mapId != 0;
     }
 
-    void trigger_effect()
+    int count_inventory_item(uint8_t type, uint8_t typeId)
     {
-        auto user = g_pWorldMgr->user;
-        if (!user)
-            return;
+        auto count = 0;
+        auto maxBag = g_pPlayerData->inventory.size() - 1;
 
-        CWorldMgr::RenderEffect(3, 0, &user->pos, &user->dir, &user->up, 9);
+        for (size_t bag = 1; bag <= maxBag; ++bag)
+        {
+            for (const auto& item : g_pPlayerData->inventory[bag])
+            {
+                if (item.type == type && item.typeId == typeId)
+                    count += item.count;
+            }
+        }
+
+        return count;
+    }
+
+    bool is_inventory_full()
+    {
+        auto maxBag = g_pPlayerData->inventory.size() - 1;
+
+        for (size_t bag = 1; bag <= maxBag; ++bag)
+        {
+            for (const auto& item : g_pPlayerData->inventory[bag])
+            {
+                if (!item.type)
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
+    void request_roulette_list()
+    {
+        ensure_client_sysmsg_dispatch_ready();
+        if (g_var->hwnd && IsWindow(g_var->hwnd))
+            PostMessageA(g_var->hwnd, kClientRouletteListWindowMessage, 0, 0);
+
+        g_lastRouletteListTick = GetTickCount();
+    }
+
+    void request_roulette_spin()
+    {
+        ensure_client_sysmsg_dispatch_ready();
+        if (g_var->hwnd && IsWindow(g_var->hwnd))
+            PostMessageA(g_var->hwnd, kClientRouletteRollWindowMessage, 0, 0);
+
+        constexpr uint8_t kWheelSegmentCount = 8;
+        roulette_event::spinActive = true;
+        roulette_event::spinStartTick = GetTickCount();
+        roulette_event::spinDurationMs = 4500;
+        roulette_event::rewardIndex = static_cast<uint8_t>((roulette_event::spinStartTick / 97) % kWheelSegmentCount);
+        roulette_event::lastResult = 0;
+        ++roulette_event::spinSerial;
+        g_lastRouletteRollTick = GetTickCount();
+    }
+
+    void draw_roulette_wheel()
+    {
+        auto drawList = ImGui::GetWindowDrawList();
+        auto origin = ImGui::GetCursorScreenPos();
+        auto width = ImGui::GetContentRegionAvail().x;
+        auto height = 132.0f;
+        auto centerX = origin.x + width * 0.5f;
+        auto centerY = origin.y + height * 0.5f;
+        auto now = GetTickCount();
+        constexpr int kWheelSegmentCount = 8;
+        constexpr float kPi = 3.1415926535f;
+        constexpr float kTwoPi = kPi * 2.0f;
+        const ImU32 colors[kWheelSegmentCount] = {
+            IM_COL32(244, 83, 92, 255),
+            IM_COL32(246, 130, 76, 255),
+            IM_COL32(247, 191, 82, 255),
+            IM_COL32(91, 199, 118, 255),
+            IM_COL32(76, 176, 221, 255),
+            IM_COL32(102, 131, 229, 255),
+            IM_COL32(178, 91, 218, 255),
+            IM_COL32(232, 103, 171, 255),
+        };
+        auto angle = -kPi * 0.5f;
+
+        if (roulette_event::spinActive && roulette_event::spinDurationMs > 0)
+        {
+            auto t = static_cast<float>(now - roulette_event::spinStartTick) / static_cast<float>(roulette_event::spinDurationMs);
+            t = std::clamp(t, 0.0f, 1.0f);
+            auto eased = 1.0f - std::pow(1.0f - t, 3.0f);
+            auto target = static_cast<float>(roulette_event::rewardIndex) * (kTwoPi / static_cast<float>(kWheelSegmentCount));
+            angle += eased * (kTwoPi * 5.0f + target);
+        }
+
+        ImGui::InvisibleButton("##roulette_wheel", ImVec2(width, height));
+        drawList->AddRectFilled(origin, ImVec2(origin.x + width, origin.y + height), IM_COL32(16, 17, 20, 210), 6.0f);
+
+        auto radius = std::min(width, height) * 0.42f;
+        auto center = ImVec2(centerX - 8.0f, centerY);
+        for (int i = 0; i < kWheelSegmentCount; ++i)
+        {
+            auto start = angle + static_cast<float>(i) * (kTwoPi / static_cast<float>(kWheelSegmentCount));
+            auto end = angle + static_cast<float>(i + 1) * (kTwoPi / static_cast<float>(kWheelSegmentCount));
+            drawList->PathClear();
+            drawList->PathLineTo(center);
+            for (int step = 0; step <= 8; ++step)
+            {
+                auto a = start + (end - start) * (static_cast<float>(step) / 8.0f);
+                drawList->PathLineTo(ImVec2(center.x + std::cos(a) * radius, center.y + std::sin(a) * radius));
+            }
+            drawList->PathFillConvex(colors[i]);
+        }
+
+        drawList->AddCircle(center, radius, IM_COL32(255, 255, 255, 170), 64, 2.0f);
+        drawList->AddCircleFilled(center, radius * 0.16f, IM_COL32(20, 22, 26, 245), 32);
+        drawList->AddTriangleFilled(
+            ImVec2(center.x + radius + 13.0f, center.y),
+            ImVec2(center.x + radius - 7.0f, center.y - 11.0f),
+            ImVec2(center.x + radius - 7.0f, center.y + 11.0f),
+            IM_COL32(255, 255, 255, 245));
+    }
+
+    void draw_roulette_section()
+    {
+        auto now = GetTickCount();
+        if (is_game_scene() && (!roulette_event::hasList || now - g_lastRouletteListTick > 15000))
+            request_roulette_list();
+
+        if (roulette_event::spinActive && roulette_event::spinDurationMs && now - roulette_event::spinStartTick > roulette_event::spinDurationMs + 500)
+            roulette_event::spinActive = false;
+
+        auto tokenType = roulette_event::tokenType ? roulette_event::tokenType : 100;
+        auto tokenTypeId = roulette_event::tokenTypeId ? roulette_event::tokenTypeId : 200;
+        auto requiredTokenCount = roulette_event::tokenCount ? roulette_event::tokenCount : 1;
+        auto tokenCount = count_inventory_item(tokenType, tokenTypeId);
+        auto canRoll = is_game_scene() && tokenCount >= requiredTokenCount && !roulette_event::spinActive;
+
+        ImGui::SeparatorText("Roulette");
+        ImGui::Text("Token %u/%u: %d", tokenType, tokenTypeId, tokenCount);
+        draw_roulette_wheel();
+        ImGui::BeginDisabled(!canRoll);
+        if (ImGui::Button("Roll", ImVec2(ImGui::GetContentRegionAvail().x, 0.0f)))
+            request_roulette_spin();
+        ImGui::EndDisabled();
+
+        if (!is_game_scene())
+            ImGui::TextDisabled("Enter the game to roll.");
+        else if (roulette_event::spinActive)
+            ImGui::TextDisabled("Spinning...");
+        else if (tokenCount < requiredTokenCount)
+            ImGui::TextDisabled("Missing token.");
+        else if (g_lastRouletteRollTick && now - g_lastRouletteRollTick < 8000)
+            ImGui::TextDisabled("Reward delivered.");
     }
 
     bool should_run_overlay_session()
@@ -481,7 +629,7 @@ namespace imgui_layer
 
                 bool placeholderOpen = g_showPlaceholder;
                 if (ImGui::Begin(
-                    "Placeholder",
+                    "User Panel",
                     &placeholderOpen,
                     ImGuiWindowFlags_NoCollapse
                         | ImGuiWindowFlags_NoFocusOnAppearing
@@ -496,12 +644,7 @@ namespace imgui_layer
                     g_placeholderWindowRect.right = static_cast<LONG>(windowPos.x + windowSize.x);
                     g_placeholderWindowRect.bottom = static_cast<LONG>(windowPos.y + windowSize.y);
 
-                    ImGui::TextWrapped("Minimal placeholder panel for future client tools.");
-                    ImGui::SeparatorText("Effect test");
-                    ImGui::BeginDisabled(!is_game_scene());
-                    if (ImGui::Button("Trigger effect"))
-                        trigger_effect();
-                    ImGui::EndDisabled();
+                    draw_roulette_section();
                 }
                 ImGui::End();
                 g_showPlaceholder = placeholderOpen;

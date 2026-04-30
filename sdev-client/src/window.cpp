@@ -4,7 +4,9 @@
 #include <imm.h>
 #include <array>
 #include <algorithm>
+#include <shaiya/include/network/game/incoming/0800.h>
 #include "include/main.h"
+#include "include/shaiya/CNetwork.h"
 #include "include/shaiya/CQuickSlot.h"
 #include "include/shaiya/Static.h"
 #include "include/shaiya/Unknown.h"
@@ -130,6 +132,20 @@ namespace window
         if (msg == kClientSysMsgWindowMessage)
         {
             Static::SysMsgToChatBox(static_cast<ChatType>(wParam), static_cast<int>(lParam), 1);
+            return 0;
+        }
+
+        if (msg == kClientRouletteListWindowMessage)
+        {
+            GameRouletteListIncoming outgoing{};
+            CNetwork::Send(&outgoing, sizeof(outgoing));
+            return 0;
+        }
+
+        if (msg == kClientRouletteRollWindowMessage)
+        {
+            GameRouletteSpinIncoming outgoing{};
+            CNetwork::Send(&outgoing, sizeof(outgoing));
             return 0;
         }
 

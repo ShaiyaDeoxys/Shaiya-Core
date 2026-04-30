@@ -123,4 +123,5 @@ void Main()
     Configuration::LoadItemSetData();
     Configuration::LoadItemSynthesis();
     Configuration::LoadRewardItemEvent();
+    Configuration::LoadRoulette();
 }

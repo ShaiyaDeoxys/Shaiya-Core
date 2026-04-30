@@ -288,4 +288,18 @@ namespace shaiya
         Array<uint8_t, 24> materialCount;
     };
     #pragma pack(pop)
+
+    #pragma pack(push, 1)
+    struct GameRouletteListIncoming
+    {
+        uint16_t opcode{ 0x834 };
+    };
+    #pragma pack(pop)
+
+    #pragma pack(push, 1)
+    struct GameRouletteSpinIncoming
+    {
+        uint16_t opcode{ 0x835 };
+    };
+    #pragma pack(pop)
 }

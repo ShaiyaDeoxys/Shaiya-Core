@@ -13,6 +13,7 @@ namespace shaiya
         static void LoadItemSetData();
         static void LoadItemSynthesis();
         static void LoadRewardItemEvent();
+        static void LoadRoulette();
 
     private:
 

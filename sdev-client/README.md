@@ -9,6 +9,7 @@ This module contains `Game.exe` hooks and client-side quality-of-life patches.
 - C++23
 - Microsoft DirectX SDK (June 2010)
 - x86 build target
+- Runtime `D3DX9_43.dll` available beside `Game.exe` or installed system-wide. The `/font` command needs this DLL to create D3DX fonts.
 
 ## Build
 
@@ -26,6 +27,18 @@ The client reads several user-facing options from `CONFIG.INI`.
 ; 1 skips the updater token check and lets Game.exe launch directly.
 ; 0 keeps the stock updater-required behavior.
 SKIPUPDATER=0
+
+; 1 auto-selects the only available server.
+; 0 keeps the stock server-selection screen.
+SKIPSERVERSELECTION=1
+
+; 1 skips character mode selection and forces Ultimate Mode.
+; 0 keeps the stock mode-selection screen.
+SKIPMODESELECTION=1
+
+; 0 uses data/interface.
+; 1 redirects the interface folder to data/interfep6 and disables the EP4 HUD layout package.
+UI=0
 
 ; Empty or missing defaults to 127.0.0.1.
 IP=
@@ -56,7 +69,7 @@ FACENAME=Arial
 
 ## Commands
 
-- `/font` opens the Windows font picker and persists the selected in-game font.
+- `/font` opens the Windows font picker and persists the selected in-game font. It requires the 32-bit `D3DX9_43.dll` runtime to be available to `Game.exe`.
 - `/effects on` and `/effects off` toggle player and mob effect rendering.
 - `/pets on` and `/pets off` toggle pet rendering. This also controls mob effects in the current hook.
 - `/wings on` and `/wings off` toggle wing rendering.
@@ -75,14 +88,14 @@ This section is the client-side feature map. Every entry is installed from `Main
 - **Updater bypass**: `ADVANCED/SKIPUPDATER=1` injects the same command-line token normally provided by `Updater.exe`, allowing direct `Game.exe` launch without changing the normal startup state machine.
 - **Login server override**: `ADVANCED/IP=` rewrites the stock login server string. Empty or missing values keep the default `127.0.0.1`.
 - **Login splash skip**: removes the Nexon/copyright splash and shortens the startup waits while preserving required login resource initialization.
-- **Single-server skip**: when the server list has exactly one entry, the client hides the server panel and selects it through the safe delayed stock path.
+- **Single-server skip**: `ADVANCED/SKIPSERVERSELECTION=1` hides the server panel and selects the only available server through the safe delayed stock path.
 - **Unicode main HWND**: upgrades the GAME window to a Unicode window and keeps the visible title as `Shaiya`, preventing the legacy title truncation issue.
 - **UTF-8 chat input**: accepts composed Unicode/IME text, stores UTF-8 bytes in the stock textbox, fixes multibyte wrapping/rendering branches, and removes the forced byte-127 send terminator.
 - **System message dispatch**: provides a private window message used by client code to safely post system messages back through the game UI thread.
 
 ### Character Creation And Selection
 
-- **Mode selection skip**: bypasses the mode-selection UI and forces Ultimate Mode during character creation.
+- **Mode selection skip**: `ADVANCED/SKIPMODESELECTION=1` bypasses the mode-selection UI and forces Ultimate Mode during character creation.
 - **Name gate bypass**: skips local ASCII-only name format checks, legacy blocked-substring checks, the local "name already verified" gate, and the UI availability request. Real validation must be enforced server/dbAgent side.
 - **Busy-as-success fallback**: treats one legacy character-creation busy result path as success for compatibility with UTF-8/special-name creation flows.
 - **Character select adjustments**: patches select-screen texture/text positions used by the current interface pack.
@@ -91,8 +104,9 @@ This section is the client-side feature map. Every entry is installed from `Main
 ### Interface And Assets
 
 - **PNG interface redirect**: rewrites known interface `.tga`/`.jpg` references to `.png` at runtime. The redirect is intentionally limited to known UI paths and avoids broad icon conversion.
+- **Custom UI folder**: `ADVANCED/UI=1` redirects stock `data/interface` references to `data/interfep6`. `UI=0` or a missing setting keeps `data/interface`.
 - **PNG screenshots**: rewrites screenshot filename templates from `.jpg/.JPG` to `.png`.
-- **EP4 HUD package**: ports selected EP4 HUD pieces: main stats frame/bars/level, target bar, target buffs/debuffs, map/minimap buttons/background/clock/server time, map arrows, bottom button strips, option main button, and load bar. Inventory and stock EXP/Bless bars are intentionally not replaced.
+- **EP4 HUD package**: ports selected EP4 HUD pieces: main stats frame/bars/level, target bar, target buffs/debuffs, map/minimap buttons/background/clock/server time, map arrows, bottom button strips, option main button, and load bar. Inventory and stock EXP/Bless bars are intentionally not replaced. This package is disabled when `ADVANCED/UI=1` so the `interfep6` layout remains coherent.
 - **Background render arguments**: adjusts startup/login background draw arguments used by the current UI setup.
 - **Level-up message suppression**: keeps the stock level-up texture creation flow, but forces the render size to zero so the splash is hidden.
 - **GM H-key HP viewer removal**: disables the vanilla redundant GM HP viewer opened by `H`; the custom target viewer remains available.
@@ -110,6 +124,7 @@ This section is the client-side feature map. Every entry is installed from `Main
 ### Battleground Button
 
 - Draws `main_stats_pvp_button.png` inside the main stats UI without rewriting the whole `CStatusMiniBar` layout.
+- When `ADVANCED/UI=1`, the button render position and click hitbox are shifted upward to match the `interfep6` main stats frame.
 - Reads `BattleFieldMoveInfo_Client.ini` from the client root or `Data` folder to display the correct battlefield name for the player level.
 - Sends packet `0x233` only after the click starts and ends inside the button, avoiding accidental activation during window maximize/minimize.
 - Uses a native confirmation dialog before sending the move request.
@@ -117,6 +132,7 @@ This section is the client-side feature map. Every entry is installed from `Main
 ### Target, Names, Titles, And Text
 
 - **Target HP viewer**: draws current/max HP inside the native target frame for monsters and users, using the configured game font.
+- When `ADVANCED/UI=1`, the target HP viewer is shifted upward to match the custom target frame.
 - **Item titles**: renders visual titles from cloak data and can be toggled with `TITLES` or `/titles`.
 - **Name colors**: renders colored names from helmet data, including rainbow color mode, and can be toggled with `COLOUR` or `/colour`.
 - **Font picker**: `/font` updates the GDI font and all known D3DX camera font slots so labels, counters, chat-adjacent overlays, and native text helpers stay consistent.
@@ -169,12 +185,14 @@ This section is the client-side feature map. Every entry is installed from `Main
 ### Discord And Debug Overlay
 
 - Discord RPC initializes with the static application id/message defined in `src/discord.cpp`.
-- The ImGui layer is present as a minimal, mostly passive overlay foundation. `F8` toggles the placeholder interactive window and `F7` toggles the realtime testing bundle.
+- The ImGui layer is present as a minimal, mostly passive overlay foundation. `F8` toggles the user panel and `F7` toggles the realtime testing bundle.
+- The ImGui roulette section is visible to all players and sends the server roulette roll packet.
 - The ImGui layer is not used for permanent production UI where native UI hooks exist.
 
 ## Asset Notes
 
 - Interface assets used by the PNG redirect must exist in the client `Data/interface` tree.
+- Custom interface assets for `ADVANCED/UI=1` must exist in `Data/interfep6`. Non-icon `.tga/.jpg` files should be converted to `.png`; the broad PNG redirect intentionally leaves `icon` assets alone.
 - Raid button assets are expected as PNG.
 - Battleground uses `main_stats_pvp_button.png`.
 - The client intentionally keeps icon assets outside the broad PNG redirect unless a feature explicitly handles them.

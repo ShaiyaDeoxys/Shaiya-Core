@@ -12,6 +12,8 @@ extern "C" __declspec(dllexport) void DllExport();
 void set_performance_mode(bool enabled);
 bool is_performance_mode_enabled();
 inline constexpr unsigned kClientSysMsgWindowMessage = 0x8000 + 0x4A2;
+inline constexpr unsigned kClientRouletteListWindowMessage = 0x8000 + 0x4A4;
+inline constexpr unsigned kClientRouletteRollWindowMessage = 0x8000 + 0x4A3;
 void queue_client_sysmsg(int chatType, int messageNumber);
 void flush_client_sysmsg_queue();
 void ensure_client_sysmsg_dispatch_ready();

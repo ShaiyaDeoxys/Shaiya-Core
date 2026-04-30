@@ -27,6 +27,7 @@
     <ClCompile Include="include\shaiya\MyShop.cpp" />
     <ClCompile Include="include\shaiya\NetworkHelper.cpp" />
     <ClCompile Include="include\shaiya\RewardItem.cpp" />
+    <ClCompile Include="include\shaiya\Roulette.cpp" />
     <ClCompile Include="include\shaiya\SBinaryReader.cpp" />
     <ClCompile Include="include\shaiya\SConnection.cpp" />
     <ClCompile Include="include\shaiya\SConnectionTBaseReconnect.cpp" />
@@ -164,6 +165,7 @@
     <ClInclude Include="include\shaiya\QuestResult.h" />
     <ClInclude Include="include\shaiya\Quick.h" />
     <ClInclude Include="include\shaiya\RewardItem.h" />
+    <ClInclude Include="include\shaiya\Roulette.h" />
     <ClInclude Include="include\shaiya\SAes.h" />
     <ClInclude Include="include\shaiya\SBinaryReader.h" />
     <ClInclude Include="include\shaiya\SBoxAxis.h" />

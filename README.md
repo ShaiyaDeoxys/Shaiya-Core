@@ -1,6 +1,6 @@
-# Shaiya Core
+# The Universal Shaiya
 
-Shaiya Core is a C++ patching and extension project for Shaiya private-server research, preservation, and development.
+The Universal Shaiya is a C++ patching and extension project for Shaiya private-server research, preservation, and development.
 
 The repository contains server-side modules for `ps_game.exe`, client-side modules for `Game.exe`, shared packet/structure definitions, and small login/database-agent helpers. The goal is to keep binary patches practical, auditable, and easy to disable while documenting why each feature exists.
 
@@ -37,6 +37,8 @@ Build outputs are ignored by git. Public releases should be built from a clean c
 ## Configuration
 
 Runtime behavior can depend on external files such as `CONFIG.INI`, PNG interface assets, and feature-specific INI files. Keep production secrets and server-specific data out of commits. Prefer documenting example values instead of committing live configuration.
+
+Client `CONFIG.INI` options include `ADVANCED/SKIPSERVERSELECTION` and `ADVANCED/SKIPMODESELECTION` for toggling the single-server and mode-selection skips. `ADVANCED/UI=1` redirects the client interface folder from `Data/interface` to `Data/interfep6` and disables the EP4 HUD layout package for that custom UI. The client `/font` command also requires the 32-bit `D3DX9_43.dll` runtime to be available beside `Game.exe` or installed system-wide.
 
 ## Feature Documentation
 

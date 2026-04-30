@@ -14,10 +14,12 @@
 #include <shaiya/include/network/game/RewardItemUnit.h>
 #include "include/extensions/filesystem.hpp"
 #include "BattlefieldMoveInfo.h"
+#include "CGameData.h"
 #include "Configuration.h"
 #include "ItemInfo.h"
 #include "ItemSynthesis.h"
 #include "RewardItem.h"
+#include "Roulette.h"
 #include "SBinaryReader.h"
 #include "Synergy.h"
 using namespace shaiya;
@@ -455,5 +457,133 @@ void Configuration::LoadRewardItemEvent()
     {
         g_rewardItemCount = 0;
         g_rewardItemList.fill({});
+    }
+}
+
+void Configuration::LoadRoulette()
+{
+    g_rouletteConfig = {};
+    g_roulettePending.clear();
+
+    try
+    {
+        std::filesystem::path path(m_root);
+        ext::filesystem::combine(path, "Data", "Roulette.ini");
+
+        if (!std::filesystem::exists(path))
+            return;
+
+        auto parse_item_id = [](int itemId, int& outType, int& outTypeId) -> bool
+        {
+            if (itemId <= 0)
+                return false;
+
+            outType = itemId / 1000;
+            outTypeId = itemId % 1000;
+            return std::in_range<uint8_t>(outType) && std::in_range<uint8_t>(outTypeId);
+        };
+
+        int tokenItemId = static_cast<int>(util::ini::get_value(L"Info", L"TokenItemID", 0, path));
+        int tokenCount = static_cast<int>(util::ini::get_value(L"Info", L"TokenCount", 1, path));
+        if (!std::in_range<uint8_t>(tokenCount) || tokenCount <= 0)
+            tokenCount = 1;
+
+        int tokenType = 0;
+        int tokenTypeId = 0;
+        if (!parse_item_id(tokenItemId, tokenType, tokenTypeId))
+            return;
+
+        g_rouletteConfig.tokenType = static_cast<uint8_t>(tokenType);
+        g_rouletteConfig.tokenTypeId = static_cast<uint8_t>(tokenTypeId);
+        g_rouletteConfig.tokenCount = static_cast<uint8_t>(tokenCount);
+
+        int rewardCount = 0;
+        for (int i = 1; i <= 10; ++i)
+        {
+            auto section = std::format(L"Reward_{}", i);
+            int itemId = static_cast<int>(util::ini::get_value(section.c_str(), L"ItemID", 0, path));
+            int count = static_cast<int>(util::ini::get_value(section.c_str(), L"Count", 1, path));
+            int chance = static_cast<int>(util::ini::get_value(section.c_str(), L"Chance", 0, path));
+
+            int rewardType = 0;
+            int rewardTypeId = 0;
+            if (!parse_item_id(itemId, rewardType, rewardTypeId))
+                continue;
+            if (!std::in_range<uint8_t>(count) || count <= 0)
+                count = 1;
+            if (chance < 0)
+                chance = 0;
+
+            auto& reward = g_rouletteConfig.rewards[rewardCount];
+            reward.type = static_cast<uint8_t>(rewardType);
+            reward.typeId = static_cast<uint8_t>(rewardTypeId);
+            reward.count = static_cast<uint8_t>(count);
+            reward.chance = static_cast<uint16_t>(std::min(chance, 10000));
+            ++rewardCount;
+        }
+
+        if (!rewardCount)
+            return;
+
+        g_rouletteConfig.rewardCount = static_cast<uint8_t>(rewardCount);
+
+        int totalChance = 0;
+        for (int i = 0; i < rewardCount; ++i)
+            totalChance += g_rouletteConfig.rewards[i].chance;
+
+        if (totalChance <= 0)
+        {
+            const uint16_t evenChance = static_cast<uint16_t>(10000 / rewardCount);
+            uint16_t used = 0;
+            for (int i = 0; i < rewardCount; ++i)
+            {
+                g_rouletteConfig.rewards[i].chance = evenChance;
+                used = static_cast<uint16_t>(used + evenChance);
+            }
+
+            int diff = 10000 - used;
+            for (int i = 0; diff > 0 && i < rewardCount; ++i, --diff)
+                ++g_rouletteConfig.rewards[i].chance;
+        }
+        else
+        {
+            std::array<uint16_t, 10> normalized{};
+            int normalizedTotal = 0;
+            for (int i = 0; i < rewardCount; ++i)
+            {
+                int value = static_cast<int>((static_cast<int64_t>(g_rouletteConfig.rewards[i].chance) * 10000LL) / totalChance);
+                value = std::max(0, std::min(value, 10000));
+                normalized[i] = static_cast<uint16_t>(value);
+                normalizedTotal += value;
+            }
+
+            int diff = 10000 - normalizedTotal;
+            int index = 0;
+            while (diff != 0 && rewardCount > 0)
+            {
+                if (diff > 0)
+                {
+                    ++normalized[index];
+                    --diff;
+                }
+                else if (normalized[index] > 0)
+                {
+                    --normalized[index];
+                    ++diff;
+                }
+
+                index = (index + 1) % rewardCount;
+            }
+
+            for (int i = 0; i < rewardCount; ++i)
+                g_rouletteConfig.rewards[i].chance = normalized[i];
+        }
+
+        g_rouletteConfig.valid = true;
+    }
+    catch (...)
+    {
+        g_rouletteConfig = {};
+        g_roulettePending.clear();
     }
 }

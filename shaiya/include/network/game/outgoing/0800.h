@@ -213,4 +213,54 @@ namespace shaiya
         GameItemSynthesisResult result;
     };
     #pragma pack(pop)
+
+    enum struct GameRouletteResult : uint8_t
+    {
+        Success = 1,
+        Failure,
+        NoToken,
+        InventoryFull,
+        Busy,
+        NotConfigured,
+    };
+
+    #pragma pack(push, 1)
+    struct GameRouletteListOutgoing
+    {
+        uint16_t opcode{ 0x834 };
+        uint8_t tokenType;
+        uint8_t tokenTypeId;
+        uint8_t tokenCount;
+        uint8_t itemCount;
+        Array<uint8_t, 10> rewardType;
+        Array<uint8_t, 10> rewardTypeId;
+        Array<uint8_t, 10> rewardCount;
+        Array<uint16_t, 10> rewardChance;
+    };
+    #pragma pack(pop)
+
+    #pragma pack(push, 1)
+    struct GameRouletteSpinOutgoing
+    {
+        uint16_t opcode{ 0x835 };
+        GameRouletteResult result;
+        uint8_t rewardIndex;
+        uint8_t rewardType;
+        uint8_t rewardTypeId;
+        uint8_t rewardCount;
+        uint32_t spinDurationMs;
+    };
+    #pragma pack(pop)
+
+    #pragma pack(push, 1)
+    struct GameRouletteRewardOutgoing
+    {
+        uint16_t opcode{ 0x836 };
+        GameRouletteResult result;
+        uint8_t rewardIndex;
+        uint8_t rewardType;
+        uint8_t rewardTypeId;
+        uint8_t rewardCount;
+    };
+    #pragma pack(pop)
 }

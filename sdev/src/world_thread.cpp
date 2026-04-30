@@ -7,6 +7,7 @@
 #include "include/shaiya/ItemInfo.h"
 #include "include/shaiya/NetworkHelper.h"
 #include "include/shaiya/RewardItem.h"
+#include "include/shaiya/Roulette.h"
 using namespace shaiya;
 
 namespace world_thread
@@ -16,6 +17,8 @@ namespace world_thread
     void update_reward_item_event()
     {
         using namespace std::chrono_literals;
+
+        roulette::update_pending_spins();
 
         auto now = std::chrono::system_clock::now();
         if (now < next_update_reward_item_event)
