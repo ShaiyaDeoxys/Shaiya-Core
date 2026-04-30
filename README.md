@@ -1,6 +1,6 @@
-# The Universal Shaiya
+# Shaiya Core
 
-The Universal Shaiya is a C++ patching and extension project for Shaiya private-server research, preservation, and development.
+Shaiya Core is a C++ patching and extension project for Shaiya private-server research, preservation, and development.
 
 The repository contains server-side modules for `ps_game.exe`, client-side modules for `Game.exe`, shared packet/structure definitions, and small login/database-agent helpers. The goal is to keep binary patches practical, auditable, and easy to disable while documenting why each feature exists.
 
