@@ -149,6 +149,13 @@ namespace window
             return 0;
         }
 
+        if (msg == kClientEmojiTokenWindowMessage)
+        {
+            auto token = reinterpret_cast<const char*>(lParam);
+            append_utf8_textbox_text(&g_var->input.textBox, token);
+            return 0;
+        }
+
         if (IsWindowUnicode(hwnd))
             return CallWindowProcW(g_originalGameWndProc, hwnd, msg, wParam, lParam);
 
@@ -173,6 +180,15 @@ namespace window
         g_hookedGameHwnd = hwnd;
 
         refresh_game_window_title(hwnd, true);
+    }
+
+    bool is_client_sysmsg_dispatch_ready()
+    {
+        auto hwnd = g_var->hwnd;
+        return hwnd
+            && IsWindow(hwnd)
+            && g_hookedGameHwnd == hwnd
+            && g_originalGameWndProc != nullptr;
     }
 }
 
@@ -226,4 +242,9 @@ void hook::window()
 void ensure_client_sysmsg_dispatch_ready()
 {
     window::ensure_client_sysmsg_dispatch_ready();
+}
+
+bool is_client_sysmsg_dispatch_ready()
+{
+    return window::is_client_sysmsg_dispatch_ready();
 }

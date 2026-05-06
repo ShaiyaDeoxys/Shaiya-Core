@@ -310,6 +310,9 @@
     <ClCompile Include="src\title.cpp">
       <Filter>src</Filter>
     </ClCompile>
+    <ClCompile Include="src\ui_image.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
     <ClCompile Include="src\vehicle.cpp">
       <Filter>src</Filter>
     </ClCompile>

@@ -136,6 +136,7 @@
     <ClCompile Include="src\resolutions.cpp" />
     <ClCompile Include="src\target_view.cpp" />
     <ClCompile Include="src\title.cpp" />
+    <ClCompile Include="src\ui_image.cpp" />
     <ClCompile Include="src\vehicle.cpp" />
     <ClCompile Include="src\weapon_step.cpp" />
     <ClCompile Include="src\window.cpp" />
@@ -243,5 +244,6 @@
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
+    <Import Project="$(SolutionDir)packages\Microsoft.DXSDK.D3DX.9.29.952.8\build\native\Microsoft.DXSDK.D3DX.targets" Condition="Exists('$(SolutionDir)packages\Microsoft.DXSDK.D3DX.9.29.952.8\build\native\Microsoft.DXSDK.D3DX.targets')" />
   </ImportGroup>
 </Project>

@@ -24,6 +24,7 @@ void Main()
     hook::select_screen();
     hook::target_view();
     hook::title();
+    hook::ui_image();
     hook::vehicle();
     hook::weapon_step();
     hook::window();

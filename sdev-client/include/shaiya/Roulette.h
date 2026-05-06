@@ -7,6 +7,7 @@ namespace shaiya
     namespace roulette_event
     {
         inline bool hasList = false;
+        inline bool listReceived = false;
         inline uint8_t tokenType = 0;
         inline uint8_t tokenTypeId = 0;
         inline uint8_t tokenCount = 1;

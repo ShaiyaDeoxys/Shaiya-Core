@@ -26,6 +26,7 @@ obj/
 # Package/cache folders
 packages/
 .tools/
+.claude/
 
 # Local logs and temporary files
 *.log

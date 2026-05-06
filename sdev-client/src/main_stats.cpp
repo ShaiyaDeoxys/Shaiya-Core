@@ -244,6 +244,7 @@ namespace
 
     void draw_battlefield_button(CWindow* window)
     {
+        tick_client_welcome_sysmsg();
         init_battlefield_button();
 
         g_anchor = window->pos;

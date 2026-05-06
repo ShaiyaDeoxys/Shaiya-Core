@@ -347,7 +347,7 @@ namespace
 void hook::raid_150()
 {
     // Raid 150 component.
-    // Direct operand patches generated from C:\Users\Franco\Desktop\Raid.CT.
+    // Direct operand patches for the expanded party-user limit.
     const std::uint32_t directPatchAddresses[]
     {
         0x0044DFD5, 0x0044DFE7, 0x0044E045, 0x0044E059, 0x0044E08B, 0x0044E091, 0x0044E097, 0x0044E0A6,

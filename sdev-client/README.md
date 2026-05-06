@@ -14,9 +14,10 @@ This module contains `Game.exe` hooks and client-side quality-of-life patches.
 ## Build
 
 ```powershell
-$env:DXSDK_DIR='C:\Program Files (x86)\Microsoft DirectX SDK (June 2010)\'
-& 'C:\BuildTools\MSBuild\Current\Bin\MSBuild.exe' ..\Shaiya-Core.sln /t:sdev-client /p:Configuration=Release /p:Platform=x86 /m
+..\build-client.cmd
 ```
+
+The root build script restores the required DirectX SDK package and builds `sdev-client` as Release|x86.
 
 ## CONFIG.INI
 
@@ -52,7 +53,7 @@ TITLES=ON
 ; Visual colored-name rendering from helmet data.
 COLOUR=ON
 
-; Optional visual/performance toggles controlled by chat commands too.
+; Optional visual/performance toggles controlled by chat commands and F7.
 COSTUMES=TRUE
 PETS=TRUE
 WINGS=TRUE
@@ -81,6 +82,8 @@ FACENAME=Arial
 
 ## Stable Client Features
 
+Repository scope reminder: `sdev` is the game server module, and `sdev-client` is the client patch module.
+
 This section is the client-side feature map. Every entry is installed from `Main()` in `src/main.cpp`.
 
 ### Startup, Login, And Windowing
@@ -92,6 +95,8 @@ This section is the client-side feature map. Every entry is installed from `Main
 - **Unicode main HWND**: upgrades the GAME window to a Unicode window and keeps the visible title as `Shaiya`, preventing the legacy title truncation issue.
 - **UTF-8 chat input**: accepts composed Unicode/IME text, stores UTF-8 bytes in the stock textbox, fixes multibyte wrapping/rendering branches, and removes the forced byte-127 send terminator.
 - **System message dispatch**: provides a private window message used by client code to safely post system messages back through the game UI thread.
+- **Welcome message**: posts the existing `SysMsg` welcome entry after the client UI is ready. The message text remains owned by the normal `sysmsg.txt` data.
+- **Visual chat tokens**: draws a small fixed ImGui emoji button near the chat input during gameplay. The picker scans `emojiN.png` entries from internal `Data\Emojis` and `gifN.gif` entries from internal `Data\Gifs` in `data.sah/saf`, then inserts plain chat tokens such as `:emoji1:` or `:gif2:` into the stock textbox through the game UI thread. The picker exposes separate ON/OFF toggles for emojis and GIFs; disabled token families are hidden from native text without drawing an overlay. GIF picker entries use lightweight static previews with a bounded resident cache, while full animation is loaded only when a GIF is rendered in chat/floating text. Packets and server handling remain plain text.
 
 ### Character Creation And Selection
 
@@ -107,11 +112,13 @@ This section is the client-side feature map. Every entry is installed from `Main
 - **Custom UI folder**: `ADVANCED/UI=1` redirects stock `data/interface` references to `data/interfep6`. `UI=0` or a missing setting keeps `data/interface`.
 - **PNG screenshots**: rewrites screenshot filename templates from `.jpg/.JPG` to `.png`.
 - **EP4 HUD package**: ports selected EP4 HUD pieces: main stats frame/bars/level, target bar, target buffs/debuffs, map/minimap buttons/background/clock/server time, map arrows, bottom button strips, option main button, and load bar. Inventory and stock EXP/Bless bars are intentionally not replaced. This package is disabled when `ADVANCED/UI=1` so the `interfep6` layout remains coherent.
+- **EP6 clock support**: the game-clock format patch is shared by the standard UI and `ADVANCED/UI=1` EP6 interface.
 - **Background render arguments**: adjusts startup/login background draw arguments used by the current UI setup.
 - **Level-up message suppression**: keeps the stock level-up texture creation flow, but forces the render size to zero so the splash is hidden.
 - **GM H-key HP viewer removal**: disables the vanilla redundant GM HP viewer opened by `H`; the custom target viewer remains available.
 - **Stats window color patch**: adjusts patched stats-window colors to fit the current interface.
 - **Dungeon map visibility**: allows dungeon maps to be shown by the client.
+- **PvP rank icon alignment**: adjusts UI image coordinates so PvP rank icons render correctly in both the standard and EP6 interface layouts.
 
 ### Raid 150 UI
 
@@ -182,12 +189,22 @@ This section is the client-side feature map. Every entry is installed from `Main
 - Applies camera limit from the global `g_cameraLimit` value.
 - Applies costume, pet, wing, and dungeon shadow/lag workarounds used by the current visual setup.
 
-### Discord And Debug Overlay
+### Discord And ImGui Panel
 
 - Discord RPC initializes with the static application id/message defined in `src/discord.cpp`.
-- The ImGui layer is present as a minimal, mostly passive overlay foundation. `F8` toggles the user panel and `F7` toggles the realtime testing bundle.
-- The ImGui roulette section is visible to all players and sends the server roulette roll packet.
-- The ImGui layer is not used for permanent production UI where native UI hooks exist.
+- `F8` toggles the modular ImGui user panel. The visible panel currently opens on Roulette and uses left/right arrow navigation for future visible modules.
+- `F7` remains an external realtime/performance toggle and is intentionally not a panel module.
+- The welcome system message is also external to modules because it is a lifecycle behavior rather than a user-controlled panel feature.
+- The Roulette module is visible to all players, requests the server reward list, displays real item names/icons from the configured server rewards, and sends the server roulette roll packet.
+- Future panel modules can stay registered but hidden until they are ready to be exposed through the arrow navigation.
+- The emoji/GIF picker is an in-world chat helper, not a panel module. Its ON/OFF controls live inside the picker.
+
+### Adding ImGui Panel Features
+
+1. Add a `draw_<feature>_section()` function in `src/imgui_layer.cpp`.
+2. Add one entry to `panel_modules()` with a stable id, title, description, and draw function.
+3. Keep feature state beside the feature code and persist settings with the existing `read_imgui_*` / `write_imgui_*` helpers when needed.
+4. Keep always-on hooks, hotkeys, lifecycle notices, and passive render overlays outside `PanelModule`; only player-facing panel sections should become visible modules.
 
 ## Asset Notes
 
@@ -195,11 +212,7 @@ This section is the client-side feature map. Every entry is installed from `Main
 - Custom interface assets for `ADVANCED/UI=1` must exist in `Data/interfep6`. Non-icon `.tga/.jpg` files should be converted to `.png`; the broad PNG redirect intentionally leaves `icon` assets alone.
 - Raid button assets are expected as PNG.
 - Battleground uses `main_stats_pvp_button.png`.
+- Visual chat token assets are read from the internal data archive: `Data/Emojis/emojiN.png` and `Data/Gifs/gifN.gif`.
+- Roulette item icons use embedded DDS atlas resources in `resources/item_icons_atlas`. These resources mirror the client item icon atlases needed to draw server-defined rewards inside the ImGui panel.
 - The client intentionally keeps icon assets outside the broad PNG redirect unless a feature explicitly handles them.
 - Custom recreation rune UI acceptance is only client-side placement. Server behavior is implemented in `sdev`.
-
-## Removed Or Disabled Work
-
-- The experimental Item Mall vehicle preview patch was removed because it did not provide reliable behavior.
-- The large cooldown-number overlay experiment was removed because it had too many rendering defects.
-- Map select-screen WLD rendering work is not part of this module.

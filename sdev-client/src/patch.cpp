@@ -1092,6 +1092,18 @@ bool append_utf8_textbox_wchar(void* textBox, wchar_t wideChar)
     return append_utf8_textbox_bytes(textBox, utf8, count);
 }
 
+bool append_utf8_textbox_text(void* textBox, const char* utf8)
+{
+    if (!utf8)
+        return false;
+
+    auto count = static_cast<int>(std::strlen(utf8));
+    if (count <= 0)
+        return false;
+
+    return append_utf8_textbox_bytes(textBox, utf8, count);
+}
+
 bool backspace_utf8_textbox_char(void* textBox)
 {
     if (!textBox)
@@ -2930,6 +2942,8 @@ void hook::patch()
     util::write_memory((void*)0x43493A, kPushMinusOne, sizeof(kPushMinusOne));
     // Remove vanilla GM H-key HP viewer.
     util::write_memory((void*)0x534817, 0x1, 1);
+    // Server-time clock text format for both standard and EP6 interface packs.
+    util::detour((void*)0x4E1255, naked_ep4_map_clock, 5);
     if (!customUiEnabled)
     {
         // EP4 UI support.
@@ -2948,7 +2962,6 @@ void hook::patch()
         util::detour((void*)0x534F57, naked_ep4_enemy_bar_buff_mouse_over, 5);
         util::detour((void*)0x4DE685, naked_ep4_main_map_button, 6);
         util::detour((void*)0x4DF4AD, naked_ep4_main_map_bg, 7);
-        util::detour((void*)0x4E1255, naked_ep4_map_clock, 5);
         util::detour((void*)0x4DDEDA, naked_ep4_main_map_servertime, 6);
         util::detour((void*)0x4D9A1C, naked_ep4_arrow_size_map, 6);
         util::detour((void*)0x4E055A, naked_ep4_arrow_size_minimap, 6);

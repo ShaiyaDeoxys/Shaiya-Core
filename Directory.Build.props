@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <PropertyGroup>
+    <RepositoryRoot>$(MSBuildThisFileDirectory)</RepositoryRoot>
+    <DXSDKD3DXPackageDir>$(RepositoryRoot)packages\Microsoft.DXSDK.D3DX.9.29.952.8\build\native\</DXSDKD3DXPackageDir>
+    <DXSDK_DIR Condition="'$(DXSDK_DIR)' == '' and Exists('$(DXSDKD3DXPackageDir)include\d3dx9.h')">$(DXSDKD3DXPackageDir)</DXSDK_DIR>
+  </PropertyGroup>
+</Project>

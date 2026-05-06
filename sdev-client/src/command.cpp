@@ -217,8 +217,7 @@ namespace
 
     void apply_fpsboost_setting(bool enabled)
     {
-        // Keep the behavior aligned with the existing command semantics.
-        g_fpsBoost = enabled ? 0 : 1;
+        g_fpsBoost = enabled ? 1 : 0;
         WritePrivateProfileStringA("ADVANCED", "FPS_BOOST", enabled ? "TRUE" : "FALSE", g_var->iniFileName.data());
     }
 
@@ -267,7 +266,7 @@ bool is_performance_mode_enabled()
         && g_showPets == 0
         && g_showWings == 0
         && g_showMobEffects == 0
-        && g_fpsBoost == 0;
+        && g_fpsBoost == 1;
 }
 
 void set_performance_mode(bool enabled)
