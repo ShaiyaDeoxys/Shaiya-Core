@@ -363,12 +363,27 @@ namespace title
 
     bool load_png_title_texture(VisualTitleAsset& asset)
     {
+        using CreateTextureFromFileInMemory = HRESULT(WINAPI*)(LPDIRECT3DDEVICE9, LPCVOID, UINT, LPDIRECT3DTEXTURE9*);
+
+        // v0.5.1
+        // Fix for not intended dependency on the client module
+        auto d3dx9 = GetModuleHandleA("d3dx9_43.dll");
+        if (!d3dx9)
+            d3dx9 = LoadLibraryA("d3dx9_43.dll");
+        if (!d3dx9)
+            return false;
+
+        auto createTexture = reinterpret_cast<CreateTextureFromFileInMemory>(
+            GetProcAddress(d3dx9, "D3DXCreateTextureFromFileInMemory"));
+        if (!createTexture)
+            return false;
+
         std::vector<char> fileData;
         if (!read_client_data_file(asset, fileData))
             return false;
 
         LPDIRECT3DTEXTURE9 texture = nullptr;
-        if (FAILED(D3DXCreateTextureFromFileInMemory(
+        if (FAILED(createTexture(
             g_var->camera.device,
             fileData.data(),
             static_cast<UINT>(fileData.size()),

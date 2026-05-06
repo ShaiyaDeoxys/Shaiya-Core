@@ -9,7 +9,7 @@ This module contains `Game.exe` hooks and client-side quality-of-life patches.
 - C++23
 - Microsoft DirectX SDK (June 2010)
 - x86 build target
-- Runtime `D3DX9_43.dll` available beside `Game.exe` or installed system-wide. The `/font` command needs this DLL to create D3DX fonts.
+- Optional runtime `D3DX9_43.dll` beside `Game.exe` or installed system-wide only for D3DX-backed visual features such as `/font`, PNG visual titles, and visual chat token PNG loading. The client DLL does not require it to start.
 
 ## Build
 
@@ -70,7 +70,7 @@ FACENAME=Arial
 
 ## Commands
 
-- `/font` opens the Windows font picker and persists the selected in-game font. It requires the 32-bit `D3DX9_43.dll` runtime to be available to `Game.exe`.
+- `/font` opens the Windows font picker and persists the selected in-game font. It uses the 32-bit `D3DX9_43.dll` runtime when available to `Game.exe`.
 - `/effects on` and `/effects off` toggle player and mob effect rendering.
 - `/pets on` and `/pets off` toggle pet rendering. This also controls mob effects in the current hook.
 - `/wings on` and `/wings off` toggle wing rendering.
