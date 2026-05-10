@@ -96,11 +96,11 @@ namespace
     constexpr char kEp4InterfaceDataPath[] = "data/interface";
     constexpr char kEp4ArrowFileName[] = "arrow.png";
     constexpr char kEp4LevelFormat[] = "%2d";
-    constexpr char kEp4ClockFormat[] = "%b %d, %Y %I:%M %p";
+    constexpr char kEp4ClockFormat[] = "%d/%m/%Y %H:%M:%S";
     constexpr double kEp4MainStatsBarLength = 145.0;
     float g_ep4MainServerTimeX = 7.0f;
     float g_ep4MainServerTimeY = 150.0f;
-    float g_ep4ClockX = 15.0f;
+    float g_ep4ClockX = 5.0f;
     float g_ep4ClockY = 163.0f;
     float g_ep4ArrowSizePlus = 16.0f;
     float g_ep4ArrowSizeMinus = -16.0f;
@@ -139,12 +139,13 @@ namespace
         { 55.0f, 142.0f },
     };
 
-    const F2 kEp4MainBottomA[2] = { { 22.0f, 49.0f }, { 571.0f, 49.0f } };
+    const F2 kEp4MainBottomA[2] = { { 92.0f, 49.0f }, { 501.0f, 49.0f } };
     const float kEp4MainBottomB[3] = { 646.0f, 35.0f, 10.0f };
-    const F2 kEp4MainBottom8A[2] = { { 16.0f, 52.0f }, { 446.0f, 52.0f } };
+    const F2 kEp4MainBottom8A[2] = { { 86.0f, 52.0f }, { 376.0f, 52.0f } };
     const float kEp4MainBottom8B[3] = { 505.0f, 27.0f, 22.0f };
-    const F2 kEp4MainBottom12A[2] = { { 28.0f, 108.0f }, { 715.0f, 108.0f } };
+    const F2 kEp4MainBottom12A[2] = { { 98.0f, 108.0f }, { 645.0f, 108.0f } };
     const float kEp4MainBottom12B[3] = { 808.0f, 43.0f, 58.0f };
+
 
     using RegisterClassExAProc = ATOM(WINAPI*)(const WNDCLASSEXA*);
     using CreateWindowExAProc = HWND(WINAPI*)(
@@ -1346,7 +1347,7 @@ void __declspec(naked) naked_0x494406()
         // EP5-style main bottom strip layout for main_bottom_button12
         mov dword ptr [esi+0x3094], 444A0000h // 808.0f
         mov dword ptr [esi+0x3098], 422C0000h // 43.0f
-        mov dword ptr [esi+0x309C], 42600000h // 56.0f
+        mov dword ptr [esi+0x309C], 42680000h // 58.0f
         jmp u0x49440D
     }
 }
@@ -1712,7 +1713,7 @@ void __declspec(naked) naked_ep4_main_bottom_exp_length()
 {
     __asm
     {
-        add eax,67
+        sub eax,33
         push eax
         call u0x631BE0
         jmp u0x495B6D
@@ -1771,7 +1772,7 @@ void __declspec(naked) naked_ep4_main_bottom_8_exp_length()
 {
     __asm
     {
-        add eax,55
+        sub eax,45
         push eax
         call u0x631BE0
         jmp u0x495693
@@ -1830,7 +1831,7 @@ void __declspec(naked) naked_ep4_main_bottom_12_exp_length()
 {
     __asm
     {
-        add eax,79
+        sub eax,21
         push eax
         call u0x631BE0
         jmp u0x496077
@@ -2968,9 +2969,23 @@ void hook::patch()
         util::detour((void*)0x4D7A47, naked_ep4_load_arrow_map, 5);
         util::detour((void*)0x4DE4FB, naked_ep4_load_arrow_minimap, 5);
         util::detour((void*)0x493CBE, naked_ep4_main_bottom, 6);
+        util::detour((void*)0x495B67, naked_ep4_main_bottom_exp_length, 6);
+        util::detour((void*)0x495B4F, naked_ep4_main_bottom_exp_width, 7);
+        util::detour((void*)0x494D6E, naked_ep4_main_bottom_exp_text, 8);
+        util::detour((void*)0x495C9C, naked_ep4_main_bottom_bless, 5);
+        util::detour((void*)0x495D77, naked_ep4_main_bottom_bless_glow, 7);
         util::detour((void*)0x49354C, naked_ep4_main_bottom_8, 6);
+        util::detour((void*)0x49568D, naked_ep4_main_bottom_8_exp_length, 6);
+        util::detour((void*)0x495675, naked_ep4_main_bottom_8_exp_width, 7);
+        util::detour((void*)0x494D60, naked_ep4_main_bottom_8_exp_text, 8);
+        util::detour((void*)0x4957B5, naked_ep4_main_bottom_8_bless, 5);
+        util::detour((void*)0x495887, naked_ep4_main_bottom_8_bless_glow, 7);
         util::detour((void*)0x49440F, naked_ep4_main_bottom_12, 6);
-        // Keep EXP/Bless bars stock: do not patch main_bottom_bar/main_bottom_bar8/main_bottom_bar12.
+        util::detour((void*)0x496071, naked_ep4_main_bottom_12_exp_length, 6);
+        util::detour((void*)0x496059, naked_ep4_main_bottom_12_exp_width, 7);
+        util::detour((void*)0x494D80, naked_ep4_main_bottom_12_exp_text, 8);
+        util::detour((void*)0x4961A6, naked_ep4_main_bottom_12_bless, 5);
+        util::detour((void*)0x496265, naked_ep4_main_bottom_12_bless_glow, 7);
         util::detour((void*)0x51F41A, naked_ep4_option_main_button, 6);
         util::detour((void*)0x4CFE5A, naked_ep4_loadbar, 6);
         util::detour((void*)0x493362, (void*)0x493442, 7);

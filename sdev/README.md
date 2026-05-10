@@ -72,7 +72,7 @@ Configuration::LoadRoulette();
 - `SetItem.SData` loads decrypted set bonuses and refreshes server-side synergy tables.
 - `ChaoticSquare.ini` loads item synthesis recipes and chaotic-square result tables.
 - `RewardItem.ini` loads the timed account reward list.
-- `Roulette.ini` loads the roulette token and up to ten rewards, then normalizes chance values to a 10000-point table.
+- `Roulette.ini` loads the roulette token and up to twenty rewards, then normalizes chance values to a 10000-point table.
 
 ### Security And Stability
 
@@ -80,7 +80,7 @@ Configuration::LoadRoulette();
 - Validates packet lengths, fixed-string lengths, inventory coordinates, and user/item pointers in custom handlers.
 - Guards outgoing packet sends through helper checks.
 - Rejects malformed equipment and inventory actions before stock code can read invalid memory.
-- Keeps unsupported mailbox handling disabled by leaving `hook::packet_mailbox()` out of the active install list.
+- Keeps unsupported mailbox handling disabled; the mailbox hook is not installed.
 
 ### Cross-Faction And Social
 

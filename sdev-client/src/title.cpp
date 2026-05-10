@@ -12,7 +12,7 @@ using std::min;
 #include <windows.h>
 #include <gdiplus.h>
 #include <objidl.h>
-#include <d3dx9.h>
+#include <external/stb/stb_image.h>
 #include <util/util.h>
 #include "include/main.h"
 #include "include/shaiya/CCharacter.h"
@@ -363,34 +363,55 @@ namespace title
 
     bool load_png_title_texture(VisualTitleAsset& asset)
     {
-        using CreateTextureFromFileInMemory = HRESULT(WINAPI*)(LPDIRECT3DDEVICE9, LPCVOID, UINT, LPDIRECT3DTEXTURE9*);
-
-        // v0.5.1
-        // Fix for not intended dependency on the client module
-        auto d3dx9 = GetModuleHandleA("d3dx9_43.dll");
-        if (!d3dx9)
-            d3dx9 = LoadLibraryA("d3dx9_43.dll");
-        if (!d3dx9)
-            return false;
-
-        auto createTexture = reinterpret_cast<CreateTextureFromFileInMemory>(
-            GetProcAddress(d3dx9, "D3DXCreateTextureFromFileInMemory"));
-        if (!createTexture)
+        auto device = g_var->camera.device;
+        if (!device)
             return false;
 
         std::vector<char> fileData;
         if (!read_client_data_file(asset, fileData))
             return false;
 
+        int width = 0, height = 0, channels = 0;
+        auto* pixels = stbi_load_from_memory(
+            reinterpret_cast<const stbi_uc*>(fileData.data()),
+            static_cast<int>(fileData.size()),
+            &width, &height, &channels, 4);
+        if (!pixels)
+            return false;
+
         LPDIRECT3DTEXTURE9 texture = nullptr;
-        if (FAILED(createTexture(
-            g_var->camera.device,
-            fileData.data(),
-            static_cast<UINT>(fileData.size()),
-            &texture)) || !texture)
+        if (FAILED(device->CreateTexture(
+            static_cast<UINT>(width), static_cast<UINT>(height),
+            1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &texture, nullptr)) || !texture)
         {
+            stbi_image_free(pixels);
             return false;
         }
+
+        D3DLOCKED_RECT locked{};
+        if (FAILED(texture->LockRect(0, &locked, nullptr, 0)))
+        {
+            texture->Release();
+            stbi_image_free(pixels);
+            return false;
+        }
+
+        // stb_image outputs RGBA, D3D9 expects BGRA (A8R8G8B8) — swizzle R<->B
+        for (int y = 0; y < height; ++y)
+        {
+            auto* src = pixels + y * width * 4;
+            auto* dst = static_cast<BYTE*>(locked.pBits) + y * locked.Pitch;
+            for (int x = 0; x < width; ++x)
+            {
+                dst[x * 4 + 0] = src[x * 4 + 2]; // B
+                dst[x * 4 + 1] = src[x * 4 + 1]; // G
+                dst[x * 4 + 2] = src[x * 4 + 0]; // R
+                dst[x * 4 + 3] = src[x * 4 + 3]; // A
+            }
+        }
+
+        texture->UnlockRect(0);
+        stbi_image_free(pixels);
 
         asset.texture.texture = texture;
         return assign_texture_size(asset.texture);

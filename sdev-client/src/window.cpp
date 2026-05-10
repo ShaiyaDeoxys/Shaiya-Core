@@ -118,6 +118,10 @@ namespace window
 
     LRESULT CALLBACK game_wnd_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     {
+        LRESULT imguiResult = 0;
+        if (handle_imgui_layer_wnd_proc(hwnd, msg, wParam, lParam, imguiResult))
+            return imguiResult;
+
         // The UTF-8 window upgrade can leave legacy title writes truncated to
         // "S". Refresh from the actual subclassed GAME HWND so later client
         // rewrites cannot leave the visible caption broken.

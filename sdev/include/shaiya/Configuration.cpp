@@ -498,7 +498,7 @@ void Configuration::LoadRoulette()
         g_rouletteConfig.tokenCount = static_cast<uint8_t>(tokenCount);
 
         int rewardCount = 0;
-        for (int i = 1; i <= 10; ++i)
+        for (int i = 1; i <= static_cast<int>(g_rouletteConfig.rewards.size()); ++i)
         {
             auto section = std::format(L"Reward_{}", i);
             int itemId = static_cast<int>(util::ini::get_value(section.c_str(), L"ItemID", 0, path));
@@ -547,7 +547,7 @@ void Configuration::LoadRoulette()
         }
         else
         {
-            std::array<uint16_t, 10> normalized{};
+            std::array<uint16_t, kRouletteMaxRewards> normalized{};
             int normalizedTotal = 0;
             for (int i = 0; i < rewardCount; ++i)
             {

@@ -22,6 +22,12 @@ Path: `external/discord-rpc/include/rapidjson/`
 
 RapidJSON is included through the Discord RPC dependency. RapidJSON is distributed under its own permissive license terms in upstream releases.
 
+## stb_image
+
+Path: `external/stb/stb_image.h`
+
+stb_image is a single-header public-domain image loading library by Sean Barrett. Used for PNG decoding in the client module. The file is in the public domain (or MIT licensed, at your option). See the license block at the top of the header.
+
 ## mini-gmp
 
 Path: `mini-gmp/`

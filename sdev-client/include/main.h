@@ -1,4 +1,8 @@
 #pragma once
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
 #include <cstddef>
 #include <cstdint>
 
@@ -24,6 +28,7 @@ void sync_textbox_utf8_display(void* textBox);
 bool append_utf8_textbox_wchar(void* textBox, wchar_t wideChar);
 bool append_utf8_textbox_text(void* textBox, const char* utf8);
 bool backspace_utf8_textbox_char(void* textBox);
+bool handle_imgui_layer_wnd_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT& result);
 
 namespace hook
 {

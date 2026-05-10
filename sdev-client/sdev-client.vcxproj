@@ -12,6 +12,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\main.h" />
+    <ClInclude Include="src\include\debug_panel.h" />
     <ClInclude Include="..\external\discord-rpc\include\discord_register.h" />
     <ClInclude Include="..\external\discord-rpc\include\discord_rpc.h" />
     <ClInclude Include="..\external\imgui\imgui.h" />
@@ -137,6 +138,8 @@
     <ClCompile Include="src\target_view.cpp" />
     <ClCompile Include="src\title.cpp" />
     <ClCompile Include="src\ui_image.cpp" />
+    <ClCompile Include="src\debug_panel.cpp" />
+    <ClCompile Include="src\stb_image_impl.cpp" />
     <ClCompile Include="src\vehicle.cpp" />
     <ClCompile Include="src\weapon_step.cpp" />
     <ClCompile Include="src\window.cpp" />

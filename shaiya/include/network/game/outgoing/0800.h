@@ -6,6 +6,8 @@
 
 namespace shaiya
 {
+    inline constexpr std::size_t kGameRouletteMaxRewards = 20;
+
     #pragma pack(push, 1)
     // TP_CLOAK_ADD
     struct GameCloakInfoAddOutgoing
@@ -232,10 +234,10 @@ namespace shaiya
         uint8_t tokenTypeId;
         uint8_t tokenCount;
         uint8_t itemCount;
-        Array<uint8_t, 10> rewardType;
-        Array<uint8_t, 10> rewardTypeId;
-        Array<uint8_t, 10> rewardCount;
-        Array<uint16_t, 10> rewardChance;
+        Array<uint8_t, kGameRouletteMaxRewards> rewardType;
+        Array<uint8_t, kGameRouletteMaxRewards> rewardTypeId;
+        Array<uint8_t, kGameRouletteMaxRewards> rewardCount;
+        Array<uint16_t, kGameRouletteMaxRewards> rewardChance;
     };
     #pragma pack(pop)
 

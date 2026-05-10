@@ -1,12 +1,15 @@
 #pragma once
 #include <array>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <mutex>
 
 namespace shaiya
 {
+    inline constexpr std::size_t kRouletteMaxRewards = 20;
+
     struct CUser;
 
     struct RouletteReward
@@ -23,7 +26,7 @@ namespace shaiya
         uint8_t tokenTypeId{};
         uint8_t tokenCount{ 1 };
         uint8_t rewardCount{};
-        std::array<RouletteReward, 10> rewards{};
+        std::array<RouletteReward, kRouletteMaxRewards> rewards{};
         bool valid{};
     };
 

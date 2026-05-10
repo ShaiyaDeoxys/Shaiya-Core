@@ -1,6 +1,6 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#include <dwmapi.h>
+#include <windowsx.h>
 #include <d3d9.h>
 #include <algorithm>
 using std::max;
@@ -8,11 +8,13 @@ using std::min;
 #include <gdiplus.h>
 #include <objidl.h>
 #include <util/util.h>
+#include <external/stb/stb_image.h>
 #include <atomic>
 #include <array>
 #include <cstdio>
 #include <cstdint>
 #include <cctype>
+#include <cfloat>
 #include <cstring>
 #include <cmath>
 #include <deque>
@@ -25,7 +27,6 @@ using std::min;
 #include <utility>
 #include <vector>
 #pragma comment(lib, "d3d9.lib")
-#pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "gdiplus.lib")
 #include <external/imgui/imgui.h>
 #include <external/imgui/imgui_internal.h>
@@ -43,6 +44,7 @@ using std::min;
 #include "include/shaiya/CWorldMgr.h"
 #include "include/shaiya/Static.h"
 #include "resources/resource.h"
+#include "include/debug_panel.h"
 using namespace shaiya;
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -51,7 +53,9 @@ void naked_chat_balloon_text_create();
 void naked_capture_chat_balloon_text();
 void naked_floating_text_create();
 void naked_capture_floating_static_text();
+void naked_static_text_create();
 void naked_floating_static_text_draw();
+void naked_native_text_draw_probe();
 
 /*
 Mini wiki for future client features
@@ -74,10 +78,8 @@ UI notes
 - If an instruction must be patched, always patch the immediate operand bytes, not the opcode.
 
 Overlay policy
-- The overlay can run passively for always-on, click-through client HUD features.
-- F8 toggles the modular user panel. Panel features are registered as modules
-  so new user-facing ImGui features do not need to rewrite the panel shell.
-- F7 toggles the realtime performance-mode bundle outside the panel module system.
+- The overlay runs passively for always-on, click-through client HUD features.
+- F8 toggles the roulette panel. F7 toggles performance mode.
 
 Chat type notes
 - Upper bar: 15 orange, 16 red, 17 red, 18 yellow, 19 high-tone green, 20 violet, 21 light blue, 22 light green, 34 light grey.
@@ -91,23 +93,16 @@ namespace imgui_layer
     constexpr const char* kImguiIniSection = "IMGUI";
     constexpr const char* kPanelPosXKey = "PANEL_X";
     constexpr const char* kPanelPosYKey = "PANEL_Y";
-    constexpr const char* kPanelWidthKey = "PANEL_W";
-    constexpr const char* kPanelHeightKey = "PANEL_H";
-    constexpr const char* kPanelModuleKey = "PANEL_MODULE";
-    constexpr const char* kEmojiButtonPosXKey = "EMOJI_BUTTON_X";
-    constexpr const char* kEmojiButtonPosYKey = "EMOJI_BUTTON_Y";
-    constexpr const char* kEmojiPickerPosXKey = "EMOJI_PICKER_X";
-    constexpr const char* kEmojiPickerPosYKey = "EMOJI_PICKER_Y";
-    constexpr const char* kEmojiButtonLockedKey = "EMOJI_BUTTON_LOCKED";
-    constexpr const char* kEmojisEnabledKey = "EMOJIS_ENABLED";
-    constexpr const char* kGifsEnabledKey = "GIFS_ENABLED";
-    constexpr const char* kEmojiPickerIniSection = "EMOJI_PICKER";
-    constexpr const char* kEmojiButtonXKey = "BUTTON_X";
-    constexpr const char* kEmojiButtonYKey = "BUTTON_Y";
-    constexpr const char* kEmojiPickerXKey = "PICKER_X";
-    constexpr const char* kEmojiPickerYKey = "PICKER_Y";
-    constexpr auto kFixedEmojiButtonPosition = ImVec2(321.0f, 935.0f);
-    constexpr auto kFixedEmojiPickerPosition = ImVec2(359.0f, 773.0f);
+    // Emoji button default position and picker offset from button
+    constexpr auto kDefaultEmojiButtonPosition = ImVec2(321.0f, 939.0f);
+    constexpr auto kEmojiPickerOffset = ImVec2(32.0f, 0.0f);
+    constexpr const char* kEmojiBtnXKey = "EMOJI_X";
+    constexpr const char* kEmojiBtnYKey = "EMOJI_Y";
+    constexpr auto kEmojiButtonSize = ImVec2(28.0f, 28.0f);
+    constexpr auto kEmojiPickerSize = ImVec2(260.0f, 270.0f);
+    constexpr auto kEmojiPickerIconSize = ImVec2(26.0f, 26.0f);
+    constexpr DWORD kEmojiSceneGraceMs = 4000;
+    constexpr DWORD kEmojiMapChangeGraceMs = 8000;
 
     inline std::atomic_bool g_running = false;
     inline bool g_f7Down = false;
@@ -116,7 +111,6 @@ namespace imgui_layer
     inline bool g_showPanel = false;
     inline bool g_sentWelcomeMessage = false;
     inline bool g_waitingWelcomeMessage = false;
-    inline bool g_restorePanelLayout = true;
     inline bool g_f7BundleUsed = false;
     inline bool g_imguiSettingsLoaded = false;
     inline bool g_imguiSettingsDirty = false;
@@ -125,42 +119,49 @@ namespace imgui_layer
     inline DWORD g_lastPanelSaveTick = 0;
     inline DWORD g_imguiSettingsDirtyTick = 0;
     inline HWND g_overlayHwnd = nullptr;
-    inline LPDIRECT3D9 g_d3d9 = nullptr;
     inline LPDIRECT3DDEVICE9 g_device = nullptr;
-    inline D3DPRESENT_PARAMETERS g_presentParameters{};
-    inline RECT g_lastSyncedGameWindowRect{};
-    inline UINT g_pendingBackBufferWidth = 0;
-    inline UINT g_pendingBackBufferHeight = 0;
-    inline bool g_deviceResetPending = false;
+    inline bool g_imguiInitialized = false;
+    inline LPDIRECT3DDEVICE9 g_hookedDevice = nullptr;
+    using ResetFn = HRESULT(__stdcall*)(IDirect3DDevice9*, D3DPRESENT_PARAMETERS*);
+    using PresentFn = HRESULT(__stdcall*)(IDirect3DDevice9*, const RECT*, const RECT*, HWND, const RGNDATA*);
+    inline ResetFn g_originalReset = nullptr;
+    inline PresentFn g_originalPresent = nullptr;
     inline RECT g_panelDragRect{};
     inline RECT g_panelWindowRect{};
     inline RECT g_emojiButtonRect{};
     inline RECT g_emojiPickerRect{};
     inline ImVec2 g_panelPosition = ImVec2(80.0f, 80.0f);
-    inline ImVec2 g_panelSize = ImVec2(520.0f, 380.0f);
-    inline ImVec2 g_emojiButtonPosition = kFixedEmojiButtonPosition;
-    inline ImVec2 g_emojiPickerPosition = kFixedEmojiPickerPosition;
+    inline ImVec2 g_emojiButtonPosition = kDefaultEmojiButtonPosition;
+    inline ImVec2 g_emojiPickerPosition = ImVec2(0.0f, 0.0f);
+    inline bool g_emojiRepositionMode = false;
     inline DWORD g_lastRouletteRollTick = 0;
     inline DWORD g_lastRouletteListTick = 0;
     inline bool g_showEmojiPicker = false;
     inline bool g_chatEmojiHookInstalled = false;
-    inline bool g_draggedEmojiButton = false;
-    inline bool g_draggedEmojiPicker = false;
-    inline bool g_draggingEmojiButton = false;
-    inline bool g_emojiButtonMouseWasDown = false;
-    inline ImVec2 g_emojiButtonDragOffset = ImVec2(0.0f, 0.0f);
-    inline ImVec2 g_emojiButtonDragStart = ImVec2(0.0f, 0.0f);
     inline bool g_draggedPanel = false;
     inline bool g_draggingPanel = false;
     inline bool g_panelMouseWasDown = false;
     inline ImVec2 g_panelDragOffset = ImVec2(0.0f, 0.0f);
-    inline bool g_emojiButtonLocked = false;
     inline bool g_emojisEnabled = true;
     inline bool g_gifsEnabled = true;
-    inline bool g_hasSavedEmojiButtonPosition = false;
     inline bool g_clearImguiActiveId = false;
     inline bool g_rollMouseWasDown = false;
-    inline int g_activePanelModule = 0;
+
+    // Roulette background PNG loaded from data.sah (emojis/roulette_bg.png)
+    inline LPDIRECT3DTEXTURE9 g_rouletteBgTexture = nullptr;
+    inline uint64_t g_rouletteBgDataOffset = 0;
+    inline uint64_t g_rouletteBgDataSize = 0;
+    inline bool g_rouletteBgFound = false;
+    inline bool g_rouletteBgLoadAttempted = false;
+
+    // Roll button position (fixed overlay — relative to wheel bottom)
+    constexpr float kRollButtonOffsetX = -1.0f;
+    constexpr float kRollButtonOffsetY = -47.0f;
+    constexpr float kRollButtonH = 30.0f;
+    // Width is derived from wheel: inset 28px from each side to avoid overflow
+    constexpr float kRollButtonInset = 95.0f;
+    constexpr float kPanelFixedW = 546.0f;
+    constexpr float kPanelFixedH = 577.0f;
 
     enum class VisualTokenKind
     {
@@ -210,15 +211,15 @@ namespace imgui_layer
         DWORD tick;
         int x;
         int y;
+        bool lowerChat;
         std::vector<ChatEmojiTokenOverlay> tokens;
     };
 
-    struct PanelModule
+    struct LowerChatEmojiLine
     {
-        const char* id;
-        const char* title;
-        const char* description;
-        void (*draw)();
+        std::string text;
+        std::vector<ChatEmojiTokenOverlay> tokens;
+        int visualLines = 1;
     };
 
     struct NativeItemIconEntry
@@ -237,13 +238,23 @@ namespace imgui_layer
         int height = 0;
     };
 
+
     inline std::mutex g_chatEmojiMutex;
-    inline std::deque<ChatEmojiLineOverlay> g_chatEmojiLines;
+    inline std::deque<LowerChatEmojiLine> g_lowerChatEmojiLines;
     inline std::mutex g_floatingEmojiMutex;
     inline bool g_hasPendingFloatingEmojiLine = false;
     inline ChatEmojiLineOverlay g_pendingFloatingEmojiLine{};
     inline std::unordered_map<void*, ChatEmojiLineOverlay> g_floatingEmojiLines;
-    inline std::unordered_map<void*, FloatingEmojiRenderOverlay> g_floatingEmojiRenders;
+    inline std::vector<FloatingEmojiRenderOverlay> g_floatingEmojiRenders;
+    inline thread_local std::vector<ChatEmojiLineOverlay> g_staticTextCreateStack;
+    inline bool g_emojiSceneStateInitialized = false;
+    inline bool g_lastEmojiGameScene = false;
+    inline DWORD g_emojiSceneLostTick = 0;
+    inline DWORD g_emojiSceneTransitionUntilTick = 0;
+    inline uint16_t g_lastEmojiMapId = 0;
+    inline DWORD g_emojiMapGraceUntilTick = 0;
+    inline uint32_t g_lastEmojiCharId = 0;
+    inline CCharacter* g_lastEmojiUser = nullptr;
     inline std::string g_sanitizedChatText;
     inline std::string g_sanitizedFloatingText;
     inline std::map<int, NativeItemIconEntry> g_nativeItemIcons;
@@ -251,7 +262,33 @@ namespace imgui_layer
     inline ULONG_PTR g_gdiplusToken = 0;
     inline bool g_gdiplusStartAttempted = false;
 
-    FARPROC get_d3dx_proc(const char* name);
+    // Chat overlay tuning constants
+    struct ChatTuning
+    {
+        float chatBottomOffset;
+        float lineHeight;
+        float chatTextX;
+        float chatRightPct;
+        float iconSize;
+        float chatTopPct;
+        float floatingIconSize;
+        float floatingYAdjust;
+        float lowerChatMaxX;
+        float lowerChatMinY;
+    };
+
+    constexpr ChatTuning kDefaultChatTuning = {
+        78.0f, 15.9f, 26.0f, 0.26f, 17.0f, 0.25f, 16.0f, -3.0f, 360.0f, 650.0f
+    };
+
+    inline ChatTuning g_tune = kDefaultChatTuning;
+    constexpr int kScrollMinLines = 1;
+
+    inline int g_chatScrollOffset = 0;
+
+    // Forward declarations — full definitions later
+    void set_chat_scroll_offset(int value);
+    LPDIRECT3DTEXTURE9 create_texture_from_image_memory(LPDIRECT3DDEVICE9 device, const void* data, UINT dataSize);
 
     std::string get_client_config_ini_path()
     {
@@ -379,53 +416,6 @@ namespace imgui_layer
         write_profile_string_all(kImguiIniSection, key, value ? "TRUE" : "FALSE");
     }
 
-    float read_emoji_float(const char* key, const char* legacyKey, float fallback)
-    {
-        char buffer[64]{};
-        if (read_profile_string_any(kEmojiPickerIniSection, key, buffer, sizeof(buffer)))
-            return static_cast<float>(std::atof(buffer));
-
-        return read_imgui_float(legacyKey, fallback);
-    }
-
-    bool read_emoji_float_if_present(const char* key, const char* legacyKey, float& value)
-    {
-        char buffer[64]{};
-        if (read_profile_string_any(kEmojiPickerIniSection, key, buffer, sizeof(buffer))
-            || read_profile_string_any(kImguiIniSection, legacyKey, buffer, sizeof(buffer)))
-        {
-            value = static_cast<float>(std::atof(buffer));
-            return true;
-        }
-
-        return false;
-    }
-
-    void write_emoji_float(const char* key, const char* legacyKey, float value)
-    {
-        char buffer[32]{};
-        std::snprintf(buffer, sizeof(buffer), "%.1f", value);
-        write_profile_string_all(kEmojiPickerIniSection, key, buffer);
-        write_profile_string_all(kImguiIniSection, legacyKey, buffer);
-    }
-
-    float read_emoji_picker_float(const char* key, const char* legacyKey, float fallback)
-    {
-        char buffer[64]{};
-        if (read_profile_string_any(kEmojiPickerIniSection, key, buffer, sizeof(buffer)))
-            return static_cast<float>(std::atof(buffer));
-
-        return read_imgui_float(legacyKey, fallback);
-    }
-
-    void write_emoji_picker_float(const char* key, const char* legacyKey, float value)
-    {
-        char buffer[32]{};
-        std::snprintf(buffer, sizeof(buffer), "%.1f", value);
-        write_profile_string_all(kEmojiPickerIniSection, key, buffer);
-        write_profile_string_all(kImguiIniSection, legacyKey, buffer);
-    }
-
     void load_imgui_settings()
     {
         if (g_imguiSettingsLoaded)
@@ -433,19 +423,8 @@ namespace imgui_layer
 
         g_panelPosition.x = read_imgui_float(kPanelPosXKey, g_panelPosition.x);
         g_panelPosition.y = read_imgui_float(kPanelPosYKey, g_panelPosition.y);
-        g_panelSize.x = read_imgui_float(kPanelWidthKey, g_panelSize.x);
-        g_panelSize.y = read_imgui_float(kPanelHeightKey, g_panelSize.y);
-        g_emojiButtonPosition = kFixedEmojiButtonPosition;
-        g_emojiPickerPosition = kFixedEmojiPickerPosition;
-        g_hasSavedEmojiButtonPosition = true;
-        write_emoji_float(kEmojiButtonXKey, kEmojiButtonPosXKey, g_emojiButtonPosition.x);
-        write_emoji_float(kEmojiButtonYKey, kEmojiButtonPosYKey, g_emojiButtonPosition.y);
-        write_emoji_picker_float(kEmojiPickerXKey, kEmojiPickerPosXKey, g_emojiPickerPosition.x);
-        write_emoji_picker_float(kEmojiPickerYKey, kEmojiPickerPosYKey, g_emojiPickerPosition.y);
-        g_emojiButtonLocked = read_imgui_bool(kEmojiButtonLockedKey, g_emojiButtonLocked);
-        g_emojisEnabled = read_imgui_bool(kEmojisEnabledKey, g_emojisEnabled);
-        g_gifsEnabled = read_imgui_bool(kGifsEnabledKey, g_gifsEnabled);
-        g_activePanelModule = read_imgui_int(kPanelModuleKey, g_activePanelModule);
+        g_emojiButtonPosition.x = read_imgui_float(kEmojiBtnXKey, g_emojiButtonPosition.x);
+        g_emojiButtonPosition.y = read_imgui_float(kEmojiBtnYKey, g_emojiButtonPosition.y);
         g_imguiSettingsLoaded = true;
     }
 
@@ -453,29 +432,10 @@ namespace imgui_layer
     {
         write_imgui_float(kPanelPosXKey, g_panelPosition.x);
         write_imgui_float(kPanelPosYKey, g_panelPosition.y);
-        write_imgui_float(kPanelWidthKey, g_panelSize.x);
-        write_imgui_float(kPanelHeightKey, g_panelSize.y);
-        g_emojiButtonPosition = kFixedEmojiButtonPosition;
-        g_emojiPickerPosition = kFixedEmojiPickerPosition;
-        write_emoji_float(kEmojiButtonXKey, kEmojiButtonPosXKey, g_emojiButtonPosition.x);
-        write_emoji_float(kEmojiButtonYKey, kEmojiButtonPosYKey, g_emojiButtonPosition.y);
-        g_hasSavedEmojiButtonPosition = true;
-        write_emoji_picker_float(kEmojiPickerXKey, kEmojiPickerPosXKey, g_emojiPickerPosition.x);
-        write_emoji_picker_float(kEmojiPickerYKey, kEmojiPickerPosYKey, g_emojiPickerPosition.y);
-        write_imgui_bool(kEmojiButtonLockedKey, g_emojiButtonLocked);
-        write_imgui_bool(kEmojisEnabledKey, g_emojisEnabled);
-        write_imgui_bool(kGifsEnabledKey, g_gifsEnabled);
-        write_imgui_int(kPanelModuleKey, g_activePanelModule);
+        write_imgui_float(kEmojiBtnXKey, g_emojiButtonPosition.x);
+        write_imgui_float(kEmojiBtnYKey, g_emojiButtonPosition.y);
         g_imguiSettingsDirty = false;
         g_lastPanelSaveTick = GetTickCount();
-    }
-
-    void save_emoji_button_position()
-    {
-        g_emojiButtonPosition = kFixedEmojiButtonPosition;
-        write_emoji_float(kEmojiButtonXKey, kEmojiButtonPosXKey, g_emojiButtonPosition.x);
-        write_emoji_float(kEmojiButtonYKey, kEmojiButtonPosYKey, g_emojiButtonPosition.y);
-        g_hasSavedEmojiButtonPosition = true;
     }
 
     void mark_imgui_settings_dirty()
@@ -510,12 +470,121 @@ namespace imgui_layer
     bool is_game_scene()
     {
         return g_pWorldMgr->user != nullptr
+            && g_pWorldMgr->mapSize > 0
             && g_pPlayerData->charId != 0;
+    }
+
+    bool is_emoji_transition_grace_active()
+    {
+        return g_emojiMapGraceUntilTick != 0
+            && static_cast<int32_t>(GetTickCount() - g_emojiMapGraceUntilTick) < 0;
+    }
+
+    void clear_emoji_text_overlays()
+    {
+        {
+            std::lock_guard<std::mutex> lock(g_chatEmojiMutex);
+            g_lowerChatEmojiLines.clear();
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(g_floatingEmojiMutex);
+            g_hasPendingFloatingEmojiLine = false;
+            g_pendingFloatingEmojiLine = {};
+            g_floatingEmojiLines.clear();
+            g_floatingEmojiRenders.clear();
+        }
+    }
+
+    void sync_emoji_overlay_scene_state()
+    {
+        auto now = GetTickCount();
+        auto gameScene = is_game_scene();
+        auto charId = g_pPlayerData ? g_pPlayerData->charId : uint32_t{ 0 };
+        auto mapId = gameScene ? g_pPlayerData->mapId : uint16_t{ 0 };
+        auto* user = gameScene ? g_pWorldMgr->user : nullptr;
+
+        if (!g_emojiSceneStateInitialized)
+        {
+            g_emojiSceneStateInitialized = true;
+            g_lastEmojiGameScene = gameScene;
+            g_lastEmojiCharId = charId;
+            g_lastEmojiMapId = mapId;
+            g_lastEmojiUser = user;
+            return;
+        }
+
+        if (!gameScene)
+        {
+            if (g_lastEmojiGameScene && g_emojiSceneLostTick == 0)
+            {
+                g_emojiSceneLostTick = now;
+                g_emojiMapGraceUntilTick = now + kEmojiSceneGraceMs;
+                g_emojiSceneTransitionUntilTick = now + kEmojiSceneGraceMs;
+                g_showEmojiPicker = false;
+                clear_emoji_text_overlays();
+            }
+
+            if (g_lastEmojiGameScene && now - g_emojiSceneLostTick < kEmojiSceneGraceMs)
+                return;
+
+            if (g_lastEmojiGameScene || g_lastEmojiCharId != 0)
+                clear_emoji_text_overlays();
+
+            g_lastEmojiGameScene = false;
+            g_lastEmojiCharId = 0;
+            g_lastEmojiMapId = 0;
+            g_lastEmojiUser = nullptr;
+            return;
+        }
+
+        g_emojiSceneLostTick = 0;
+
+        if ((g_lastEmojiCharId != 0 && g_lastEmojiCharId != charId)
+            || (!g_lastEmojiGameScene && g_lastEmojiCharId == 0))
+        {
+            clear_emoji_text_overlays();
+        }
+
+        if (mapId != 0 && g_lastEmojiMapId != 0 && mapId != g_lastEmojiMapId)
+        {
+            g_lastEmojiMapId = mapId;
+            g_emojiMapGraceUntilTick = now + kEmojiMapChangeGraceMs;
+            g_emojiSceneTransitionUntilTick = now + kEmojiMapChangeGraceMs;
+            g_showEmojiPicker = false;
+            clear_emoji_text_overlays();
+        }
+        else
+        {
+            g_lastEmojiMapId = mapId;
+        }
+
+        if (!g_lastEmojiGameScene || g_lastEmojiUser != user)
+            g_emojiSceneTransitionUntilTick = now + 1000;
+
+        g_lastEmojiGameScene = true;
+        g_lastEmojiCharId = charId;
+        g_lastEmojiUser = user;
     }
 
     bool is_overlay_display_usable(const ImVec2& size)
     {
         return size.x >= 320.0f && size.y >= 240.0f;
+    }
+
+    ImVec2 get_window_to_client_offset()
+    {
+        if (!g_var->hwnd || !IsWindow(g_var->hwnd))
+            return ImVec2(0.0f, 0.0f);
+
+        RECT windowRect{};
+        POINT clientOrigin{};
+        if (!GetWindowRect(g_var->hwnd, &windowRect) || !ClientToScreen(g_var->hwnd, &clientOrigin))
+            return ImVec2(0.0f, 0.0f);
+
+        return ImVec2(
+            static_cast<float>(clientOrigin.x - windowRect.left),
+            static_cast<float>(clientOrigin.y - windowRect.top));
     }
 
     bool is_game_window_foreground()
@@ -538,7 +607,10 @@ namespace imgui_layer
             return false;
 
         ScreenToClient(g_overlayHwnd, &point);
-        pos = ImVec2(static_cast<float>(point.x), static_cast<float>(point.y));
+        auto offset = get_window_to_client_offset();
+        pos = ImVec2(
+            static_cast<float>(point.x) + offset.x,
+            static_cast<float>(point.y) + offset.y);
         return true;
     }
 
@@ -552,9 +624,78 @@ namespace imgui_layer
             && pos.y < static_cast<float>(rect.bottom);
     }
 
+    bool is_cursor_in_rect(const RECT& rect);
+
     void release_imgui_capture()
     {
         g_clearImguiActiveId = true;
+    }
+
+    bool handle_wnd_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT& result)
+    {
+        if (!g_imguiInitialized || !ImGui::GetCurrentContext())
+            return false;
+
+        ImGui_ImplWin32_WndProcHandler(hwnd, msg, wParam, lParam);
+
+        // Intercept mouse wheel over chat area for emoji scroll sync
+        if (msg == WM_MOUSEWHEEL && g_var)
+        {
+            auto clientH = static_cast<float>(g_var->client.height);
+            auto clientW = static_cast<float>(g_var->client.width);
+            if (clientH > 0 && clientW > 0)
+            {
+                auto chatBottomY = clientH - g_tune.chatBottomOffset;
+                auto chatTopY = chatBottomY - clientH * g_tune.chatTopPct;
+                auto chatRightX = clientW * g_tune.chatRightPct;
+
+                POINT pt;
+                pt.x = GET_X_LPARAM(lParam);
+                pt.y = GET_Y_LPARAM(lParam);
+                ScreenToClient(hwnd, &pt);
+
+                if (pt.x >= 0 && pt.x < static_cast<int>(chatRightX) &&
+                    pt.y >= static_cast<int>(chatTopY) && pt.y <= static_cast<int>(chatBottomY + 30))
+                {
+                    auto delta = GET_WHEEL_DELTA_WPARAM(wParam);
+                    auto ticks = delta / WHEEL_DELTA;
+                    set_chat_scroll_offset(g_chatScrollOffset + ticks * 2);
+                }
+            }
+        }
+
+        auto& io = ImGui::GetIO();
+        switch (msg)
+        {
+        case WM_MOUSEMOVE:
+        case WM_MOUSEWHEEL:
+        case WM_MOUSEHWHEEL:
+        case WM_LBUTTONDOWN:
+        case WM_LBUTTONUP:
+        case WM_LBUTTONDBLCLK:
+        case WM_RBUTTONDOWN:
+        case WM_RBUTTONUP:
+        case WM_RBUTTONDBLCLK:
+        case WM_MBUTTONDOWN:
+        case WM_MBUTTONUP:
+        case WM_MBUTTONDBLCLK:
+        case WM_XBUTTONDOWN:
+        case WM_XBUTTONUP:
+        case WM_XBUTTONDBLCLK:
+            if (io.WantCaptureMouse
+                || is_cursor_in_rect(g_panelWindowRect)
+                || is_cursor_in_rect(g_emojiButtonRect)
+                || is_cursor_in_rect(g_emojiPickerRect))
+            {
+                result = TRUE;
+                return true;
+            }
+            break;
+        default:
+            break;
+        }
+
+        return false;
     }
 
     int count_inventory_item(uint8_t type, uint8_t typeId)
@@ -723,10 +864,7 @@ namespace imgui_layer
 
     LPDIRECT3DTEXTURE9 load_item_icon_resource_texture(const std::string& fileName)
     {
-        using CreateTextureFromFileInMemory = HRESULT(WINAPI*)(LPDIRECT3DDEVICE9, LPCVOID, UINT, LPDIRECT3DTEXTURE9*);
-        auto createTexture = reinterpret_cast<CreateTextureFromFileInMemory>(
-            get_d3dx_proc("D3DXCreateTextureFromFileInMemory"));
-        if (!createTexture || !g_device)
+        if (!g_device)
             return nullptr;
 
         auto resourceId = get_item_icon_atlas_resource_id(fileName);
@@ -747,11 +885,7 @@ namespace imgui_layer
         if (!resourceData || !resourceSize)
             return nullptr;
 
-        LPDIRECT3DTEXTURE9 texture = nullptr;
-        if (SUCCEEDED(createTexture(g_device, resourceData, resourceSize, &texture)) && texture)
-            return texture;
-
-        return nullptr;
+        return create_texture_from_image_memory(g_device, resourceData, resourceSize);
     }
 
     LPDIRECT3DTEXTURE9 get_or_load_item_icon_atlas_texture(const std::string& fileName, int width, int height)
@@ -930,18 +1064,40 @@ namespace imgui_layer
         return count;
     }
 
+    // Forward declarations (defined later in file)
+    void ensure_emoji_catalog_loaded();
+    LPDIRECT3DTEXTURE9 load_roulette_bg_texture();
+
     void draw_roulette_wheel()
     {
         auto drawList = ImGui::GetWindowDrawList();
         auto origin = ImGui::GetCursorScreenPos();
-        auto width = ImGui::GetContentRegionAvail().x;
-        auto height = 178.0f;
         auto itemCount = roulette_item_count();
+        auto width = ImGui::GetContentRegionAvail().x;
+        // Square area for the PNG background — use width as both dimensions
+        auto bgSize = width;
+        auto height = bgSize;
         auto now = GetTickCount();
 
         ImGui::Dummy(ImVec2(width, height));
-        drawList->AddRectFilled(origin, ImVec2(origin.x + width, origin.y + height), IM_COL32(16, 17, 20, 210), 6.0f);
-        drawList->AddRect(origin, ImVec2(origin.x + width, origin.y + height), IM_COL32(96, 111, 132, 180), 6.0f);
+
+        // Try to draw the PNG background; fall back to solid dark rect
+        ensure_emoji_catalog_loaded();
+        auto bgTex = load_roulette_bg_texture();
+        if (bgTex)
+        {
+            drawList->AddImage(
+                reinterpret_cast<ImTextureID>(bgTex),
+                origin,
+                ImVec2(origin.x + bgSize, origin.y + bgSize),
+                ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f),
+                IM_COL32(255, 255, 255, 255));
+        }
+        else
+        {
+            drawList->AddRectFilled(origin, ImVec2(origin.x + width, origin.y + height), IM_COL32(16, 17, 20, 210), 6.0f);
+            drawList->AddRect(origin, ImVec2(origin.x + width, origin.y + height), IM_COL32(96, 111, 132, 180), 6.0f);
+        }
 
         if (!itemCount)
         {
@@ -961,73 +1117,116 @@ namespace imgui_layer
             progress = eased * (static_cast<float>(itemCount) * 5.0f + static_cast<float>(roulette_event::rewardIndex));
         }
 
-        auto centerX = origin.x + width * 0.5f;
-        auto centerY = origin.y + height * 0.5f + 9.0f;
+        // Center the wheel within the PNG's circular area
+        // The PNG's circle is roughly centered with ~4% top offset for the ornament
+        auto centerX = origin.x + bgSize * 0.5f;
+        auto centerY = origin.y + bgSize * 0.5f + bgSize * 0.02f;
         constexpr auto kPi = 3.1415926535f;
-        constexpr auto kSlotSize = 34.0f;
-        auto wheelRadius = std::min(width * 0.34f, 60.0f);
+        // Items sized relative to the background
+        auto slotSize = itemCount > 12 ? (bgSize * 0.07f) : (bgSize * 0.09f);
+        slotSize = std::max(slotSize, 24.0f);
+        // Wheel radius fits inside the PNG's circular track (~38% of bg size)
+        auto wheelRadius = bgSize * 0.34f;
+        wheelRadius = std::max(wheelRadius, slotSize * 1.8f);
         auto step = (kPi * 2.0f) / static_cast<float>(itemCount);
 
+        auto mousePos = ImGui::GetMousePos();
+        int hoveredSlot = -1;
+
         drawList->PushClipRect(origin, ImVec2(origin.x + width, origin.y + height), true);
-        drawList->AddCircleFilled(ImVec2(centerX, centerY), wheelRadius + 24.0f, IM_COL32(31, 34, 42, 230), 48);
-        drawList->AddCircle(ImVec2(centerX, centerY), wheelRadius + 24.0f, IM_COL32(116, 134, 164, 190), 48, 2.0f);
-        drawList->AddCircleFilled(ImVec2(centerX, centerY), 22.0f, IM_COL32(22, 24, 29, 240), 32);
-        drawList->AddCircle(ImVec2(centerX, centerY), 22.0f, IM_COL32(212, 178, 96, 230), 32, 2.0f);
+
+        // When using PNG background, skip drawing the circles (PNG provides them)
+        if (!bgTex)
+        {
+            drawList->AddCircleFilled(ImVec2(centerX, centerY), wheelRadius + 30.0f, IM_COL32(31, 34, 42, 230), 48);
+            drawList->AddCircle(ImVec2(centerX, centerY), wheelRadius + 30.0f, IM_COL32(116, 134, 164, 190), 48, 2.0f);
+            drawList->AddCircleFilled(ImVec2(centerX, centerY), 26.0f, IM_COL32(22, 24, 29, 240), 32);
+            drawList->AddCircle(ImVec2(centerX, centerY), 26.0f, IM_COL32(212, 178, 96, 230), 32, 2.0f);
+        }
 
         for (auto i = 0; i < itemCount; ++i)
         {
             auto angle = -kPi * 0.5f + (static_cast<float>(i) - progress) * step;
             auto slotCenter = ImVec2(centerX + std::cos(angle) * wheelRadius, centerY + std::sin(angle) * wheelRadius);
-            ImVec2 iconMin(slotCenter.x - kSlotSize * 0.5f, slotCenter.y - kSlotSize * 0.5f);
-            ImVec2 iconMax(iconMin.x + kSlotSize, iconMin.y + kSlotSize);
+            ImVec2 iconMin(slotCenter.x - slotSize * 0.5f, slotCenter.y - slotSize * 0.5f);
+            ImVec2 iconMax(iconMin.x + slotSize, iconMin.y + slotSize);
 
             auto alignment = std::fabs(std::atan2(std::sin(angle + kPi * 0.5f), std::cos(angle + kPi * 0.5f)));
             auto selected = alignment < step * 0.45f;
-            drawList->AddLine(ImVec2(centerX, centerY), slotCenter, IM_COL32(78, 88, 108, 135), 1.0f);
-            drawList->AddRectFilled(iconMin, iconMax, selected ? IM_COL32(65, 72, 88, 250) : IM_COL32(43, 48, 58, 235), 5.0f);
-            drawList->AddRect(iconMin, iconMax, selected ? IM_COL32(255, 219, 118, 245) : IM_COL32(132, 150, 178, 220), 5.0f, 0, selected ? 2.0f : 1.0f);
+
+            // Hover detection for this slot
+            bool slotHovered = mousePos.x >= iconMin.x && mousePos.x <= iconMax.x
+                            && mousePos.y >= iconMin.y && mousePos.y <= iconMax.y;
+            if (slotHovered)
+                hoveredSlot = i;
+
+            if (!bgTex)
+                drawList->AddLine(ImVec2(centerX, centerY), slotCenter, IM_COL32(78, 88, 108, 135), 1.0f);
+            auto bgColor = slotHovered ? IM_COL32(80, 88, 108, 250) :
+                           (selected ? IM_COL32(65, 72, 88, 250) : IM_COL32(43, 48, 58, 235));
+            auto borderColor = slotHovered ? IM_COL32(255, 230, 140, 255) :
+                               (selected ? IM_COL32(255, 219, 118, 245) : IM_COL32(132, 150, 178, 220));
+            auto borderWidth = (slotHovered || selected) ? 2.0f : 1.0f;
+            drawList->AddRectFilled(iconMin, iconMax, bgColor, 5.0f);
+            drawList->AddRect(iconMin, iconMax, borderColor, 5.0f, 0, borderWidth);
             draw_item_icon_at(drawList, iconMin, iconMax, roulette_event::rewardType[i], roulette_event::rewardTypeId[i]);
             draw_item_count_badge(drawList, iconMin, iconMax, roulette_event::rewardCount[i]);
         }
         drawList->PopClipRect();
 
-        drawList->AddTriangleFilled(
-            ImVec2(centerX, origin.y + 13.0f),
-            ImVec2(centerX - 8.0f, origin.y + 28.0f),
-            ImVec2(centerX + 8.0f, origin.y + 28.0f),
-            IM_COL32(255, 226, 126, 255));
+        // Only draw the triangle pointer when no PNG background (PNG has its own top ornament)
+        if (!bgTex)
+        {
+            drawList->AddTriangleFilled(
+                ImVec2(centerX, origin.y + 13.0f),
+                ImVec2(centerX - 9.0f, origin.y + 30.0f),
+                ImVec2(centerX + 9.0f, origin.y + 30.0f),
+                IM_COL32(255, 226, 126, 255));
+        }
 
         if (static_cast<int32_t>(now - roulette_event::celebrationUntilTick) < 0)
         {
             for (int i = 0; i < 14; ++i)
             {
                 auto angle = (static_cast<float>(i) / 14.0f) * kPi * 2.0f + static_cast<float>(now) * 0.006f;
-                auto start = ImVec2(centerX + std::cos(angle) * 24.0f, centerY + std::sin(angle) * 24.0f);
-                auto end = ImVec2(centerX + std::cos(angle) * (wheelRadius + 32.0f), centerY + std::sin(angle) * (wheelRadius + 32.0f));
+                auto start = ImVec2(centerX + std::cos(angle) * 28.0f, centerY + std::sin(angle) * 28.0f);
+                auto end = ImVec2(centerX + std::cos(angle) * (wheelRadius + 38.0f), centerY + std::sin(angle) * (wheelRadius + 38.0f));
                 drawList->AddLine(start, end, IM_COL32(255, 214, 92, 185), 2.0f);
             }
         }
+
+        // Tooltip on hovered wheel item
+        if (hoveredSlot >= 0 && hoveredSlot < itemCount)
+        {
+            auto type = roulette_event::rewardType[hoveredSlot];
+            auto typeId = roulette_event::rewardTypeId[hoveredSlot];
+            auto count = roulette_event::rewardCount[hoveredSlot] ? roulette_event::rewardCount[hoveredSlot] : 1;
+            auto chance = roulette_event::rewardChance[hoveredSlot];
+            auto* itemInfo = CDataFile::GetItemInfo(type, typeId);
+            auto itemName = (itemInfo && itemInfo->name) ? itemInfo->name : "Reward";
+            auto itemDesc = (itemInfo && itemInfo->description && itemInfo->description[0]) ? itemInfo->description : nullptr;
+
+            ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, 0.0f), ImVec2(220.0f, FLT_MAX));
+            ImGui::BeginTooltip();
+            ImGui::PushTextWrapPos(220.0f);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.92f, 0.60f, 1.0f));
+            ImGui::Text("%s", itemName);
+            ImGui::PopStyleColor();
+            if (itemDesc)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.78f, 0.80f, 0.82f, 1.0f));
+                ImGui::TextUnformatted(itemDesc);
+                ImGui::PopStyleColor();
+            }
+            ImGui::PopTextWrapPos();
+            if (count > 1)
+                ImGui::Text("Quantity: %d", count);
+            ImGui::TextDisabled("Chance: %.2f%%", static_cast<float>(chance) / 100.0f);
+            ImGui::EndTooltip();
+        }
     }
 
-    void draw_roulette_reward_row(int index)
-    {
-        auto type = roulette_event::rewardType[index];
-        auto typeId = roulette_event::rewardTypeId[index];
-        auto count = roulette_event::rewardCount[index] ? roulette_event::rewardCount[index] : 1;
-        auto chance = roulette_event::rewardChance[index];
-        auto* itemInfo = CDataFile::GetItemInfo(type, typeId);
-        auto drawList = ImGui::GetWindowDrawList();
-        auto min = ImGui::GetCursorScreenPos();
-        auto max = ImVec2(min.x + 26.0f, min.y + 26.0f);
-        ImGui::Dummy(ImVec2(26.0f, 26.0f));
-        draw_item_icon_at(drawList, min, max, type, typeId);
-        draw_item_count_badge(drawList, min, max, count);
-        ImGui::SameLine();
-        ImGui::BeginGroup();
-        ImGui::Text("%s", itemInfo && itemInfo->name ? itemInfo->name : "Reward");
-        ImGui::TextDisabled("Chance: %.2f%%", static_cast<float>(chance) / 100.0f);
-        ImGui::EndGroup();
-    }
+    // draw_roulette_reward_cell and draw_roulette_reward_grid removed — tooltips on wheel items
 
     void draw_roulette_section()
     {
@@ -1044,87 +1243,41 @@ namespace imgui_layer
         auto itemCount = roulette_item_count();
         auto canRoll = is_game_scene() && roulette_event::hasList && itemCount > 0 && tokenCount >= requiredTokenCount && !roulette_event::spinActive;
 
-        ImGui::SeparatorText("Roulette");
-        if (roulette_event::hasList)
-        {
-            auto* tokenInfo = CDataFile::GetItemInfo(tokenType, tokenTypeId);
-            ImGui::Text("Token: %s", tokenInfo && tokenInfo->name ? tokenInfo->name : "Token");
-            ImGui::SameLine();
-            ImGui::TextDisabled("(%d/%d)", tokenCount, requiredTokenCount);
-        }
-        else if (roulette_event::listReceived)
-        {
-            ImGui::TextDisabled("Roulette is not configured.");
-        }
-        else
-        {
-            ImGui::TextDisabled("Waiting for server data...");
-        }
-
+        // Token info is now shown in the panel header
         draw_roulette_wheel();
-        auto rollPressed = draw_manual_panel_button("Roll", canRoll, ImVec2(ImGui::GetContentRegionAvail().x, 24.0f));
-        if (rollPressed)
+
+        // Invisible roll button — fixed position, inset from edges
+        auto drawList = ImGui::GetWindowDrawList();
+        auto wheelOrigin = ImGui::GetCursorScreenPos();
+        auto availW = ImGui::GetContentRegionAvail().x;
+        auto btnW = availW - kRollButtonInset * 2.0f;
+        auto btnPos = ImVec2(wheelOrigin.x + kRollButtonOffsetX + kRollButtonInset, wheelOrigin.y + kRollButtonOffsetY);
+        auto btnMax = ImVec2(btnPos.x + btnW, btnPos.y + kRollButtonH);
+
+        auto mousePos = ImGui::GetMousePos();
+        auto btnHovered = mousePos.x >= btnPos.x && mousePos.x <= btnMax.x
+                       && mousePos.y >= btnPos.y && mousePos.y <= btnMax.y;
+        auto leftDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+        auto leftPressed = leftDown && !g_rollMouseWasDown;
+
+        // Subtle golden glow on hover, brighter on click
+        if (btnHovered && leftDown)
+        {
+            drawList->AddRectFilled(btnPos, btnMax,
+                IM_COL32(255, 210, 90, 120), 4.0f);
+        }
+        else if (btnHovered)
+        {
+            auto alpha = static_cast<int>(60.0f + 30.0f * std::sin(static_cast<float>(now) * 0.004f));
+            drawList->AddRectFilled(btnPos, btnMax,
+                IM_COL32(255, 220, 120, alpha), 4.0f);
+        }
+
+        if (btnHovered && leftPressed && canRoll)
             request_roulette_spin();
-
-        auto resultLabel = roulette_result_label(roulette_event::lastResult);
-        if (!is_game_scene())
-            ImGui::TextDisabled("Enter the game to roll.");
-        else if (roulette_event::spinActive)
-            ImGui::TextDisabled("Spinning...");
-        else if (roulette_event::listReceived && !roulette_event::hasList)
-            ImGui::TextDisabled("The server returned an empty reward list.");
-        else if (!roulette_event::hasList)
-            ImGui::TextDisabled("Requesting reward list.");
-        else if (tokenCount < requiredTokenCount)
-            ImGui::TextDisabled("Not enough tokens.");
-        else if (roulette_event::lastGrantSuccess)
-        {
-            auto* rewardInfo = CDataFile::GetItemInfo(roulette_event::rewardTypeCurrent, roulette_event::rewardTypeIdCurrent);
-            ImGui::TextColored(ImVec4(0.45f, 1.0f, 0.45f, 1.0f), "Reward: %s x%d",
-                rewardInfo && rewardInfo->name ? rewardInfo->name : "Reward",
-                roulette_event::rewardCountCurrent ? roulette_event::rewardCountCurrent : 1);
-        }
-        else if (resultLabel[0])
-            ImGui::TextColored(ImVec4(1.0f, 0.42f, 0.42f, 1.0f), "%s", resultLabel);
-        else if (g_lastRouletteRollTick && now - g_lastRouletteRollTick < 8000)
-            ImGui::TextDisabled("Waiting for server response.");
-
-        if (itemCount > 0)
-        {
-            ImGui::SeparatorText("Rewards");
-            for (auto i = 0; i < itemCount; ++i)
-                draw_roulette_reward_row(i);
-        }
     }
 
-    void draw_empty_feature_slot()
-    {
-        ImGui::TextDisabled("This feature slot is ready for implementation.");
-    }
-
-    const std::vector<PanelModule>& panel_modules()
-    {
-        static const std::vector<PanelModule> modules = {
-            // To add a user-facing panel feature, implement draw_<feature>_section()
-            // and register it here with a stable id and short description.
-            {
-                "roulette",
-                "Roulette",
-                "Roll roulette rewards.",
-                draw_roulette_section
-            },
-            { "feature_slot_1", "Feature Slot 1", "Ready for a future feature.", draw_empty_feature_slot },
-            { "feature_slot_2", "Feature Slot 2", "Ready for a future feature.", draw_empty_feature_slot },
-            { "feature_slot_3", "Feature Slot 3", "Ready for a future feature.", draw_empty_feature_slot },
-            { "feature_slot_4", "Feature Slot 4", "Ready for a future feature.", draw_empty_feature_slot },
-            { "feature_slot_5", "Feature Slot 5", "Ready for a future feature.", draw_empty_feature_slot },
-            { "feature_slot_6", "Feature Slot 6", "Ready for a future feature.", draw_empty_feature_slot },
-            { "feature_slot_7", "Feature Slot 7", "Ready for a future feature.", draw_empty_feature_slot },
-            { "feature_slot_8", "Feature Slot 8", "Ready for a future feature.", draw_empty_feature_slot },
-            { "feature_slot_9", "Feature Slot 9", "Ready for a future feature.", draw_empty_feature_slot },
-        };
-        return modules;
-    }
+    // Module system removed — roulette is drawn directly
 
     void draw_panel_header(bool& panelOpen)
     {
@@ -1136,12 +1289,36 @@ namespace imgui_layer
         drawList->AddRectFilled(min, max, IM_COL32(24, 27, 31, 235), 4.0f);
         g_panelDragRect.left = static_cast<LONG>(min.x);
         g_panelDragRect.top = static_cast<LONG>(min.y);
-        g_panelDragRect.right = static_cast<LONG>(max.x - 30.0f);
+        g_panelDragRect.right = static_cast<LONG>(max.x);
         g_panelDragRect.bottom = static_cast<LONG>(max.y);
 
-        ImGui::SetCursorScreenPos(ImVec2(min.x + 8.0f, min.y + 5.0f));
-        ImGui::TextUnformatted("User Panel");
+        // Token count left-aligned: "Token:" in default color, count in gold
+        if (roulette_event::hasList)
+        {
+            auto requiredCount = roulette_event::tokenCount ? roulette_event::tokenCount : 1;
+            auto haveCount = roulette_event::tokenType ? count_inventory_item(roulette_event::tokenType, roulette_event::tokenTypeId) : 0;
+            auto labelY = min.y + std::max(0.0f, (kHeaderHeight - ImGui::GetTextLineHeight()) * 0.5f);
+            ImGui::SetCursorScreenPos(ImVec2(min.x + 6.0f, labelY));
+            ImGui::TextUnformatted("Token:");
+            ImGui::SameLine(0.0f, 4.0f);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.86f, 0.38f, 1.0f));
+            ImGui::Text("%d", haveCount);
+            ImGui::PopStyleColor();
+        }
 
+        // "Roulette" title centered
+        auto titleSize = ImGui::CalcTextSize("Roulette");
+        drawList->AddText(
+            ImVec2(min.x + (width - titleSize.x) * 0.5f,
+                   min.y + (kHeaderHeight - titleSize.y) * 0.5f),
+            IM_COL32(235, 238, 244, 255), "Roulette");
+
+        // Close button
+        ImGui::SetCursorScreenPos(ImVec2(max.x - 24.0f, min.y + 3.0f));
+        if (ImGui::Button("X", ImVec2(20.0f, 20.0f)))
+            panelOpen = false;
+
+        // Drag handling
         ImVec2 mousePos{};
         auto hasMousePos = get_overlay_mouse_pos_raw(mousePos);
         auto mouseDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
@@ -1161,8 +1338,8 @@ namespace imgui_layer
             auto displaySize = ImGui::GetIO().DisplaySize;
             auto newPosition = ImVec2(mousePos.x - g_panelDragOffset.x, mousePos.y - g_panelDragOffset.y);
             newPosition = ImVec2(
-                std::clamp(newPosition.x, 8.0f, std::max(8.0f, displaySize.x - g_panelSize.x - 8.0f)),
-                std::clamp(newPosition.y, 8.0f, std::max(8.0f, displaySize.y - g_panelSize.y - 8.0f)));
+                std::clamp(newPosition.x, 8.0f, std::max(8.0f, displaySize.x - kPanelFixedW - 8.0f)),
+                std::clamp(newPosition.y, 8.0f, std::max(8.0f, displaySize.y - kPanelFixedH - 8.0f)));
 
             if (std::fabs(newPosition.x - g_panelPosition.x) >= 0.5f || std::fabs(newPosition.y - g_panelPosition.y) >= 0.5f)
             {
@@ -1182,176 +1359,40 @@ namespace imgui_layer
         }
 
         g_panelMouseWasDown = mouseDown;
-
-        ImGui::SetCursorScreenPos(ImVec2(max.x - 24.0f, min.y + 3.0f));
-        if (ImGui::Button("X", ImVec2(20.0f, 20.0f)))
-            panelOpen = false;
-
-        ImGui::SetCursorScreenPos(ImVec2(min.x, max.y + 6.0f));
-    }
-
-    bool is_visible_panel_module(const PanelModule& module)
-    {
-        return module.draw && module.draw != draw_empty_feature_slot;
-    }
-
-    int visible_panel_module_count(const std::vector<PanelModule>& modules)
-    {
-        auto count = 0;
-        for (auto& module : modules)
-        {
-            if (is_visible_panel_module(module))
-                ++count;
-        }
-
-        return count;
-    }
-
-    int first_visible_panel_module_index(const std::vector<PanelModule>& modules)
-    {
-        for (auto index = 0; index < static_cast<int>(modules.size()); ++index)
-        {
-            if (is_visible_panel_module(modules[index]))
-                return index;
-        }
-
-        return 0;
-    }
-
-    int next_visible_panel_module_index(const std::vector<PanelModule>& modules, int current, int direction)
-    {
-        if (modules.empty())
-            return 0;
-
-        auto index = current;
-        for (auto attempts = 0; attempts < static_cast<int>(modules.size()); ++attempts)
-        {
-            index += direction;
-            if (index < 0)
-                index = static_cast<int>(modules.size()) - 1;
-            else if (index >= static_cast<int>(modules.size()))
-                index = 0;
-
-            if (is_visible_panel_module(modules[index]))
-                return index;
-        }
-
-        return current;
-    }
-
-    void draw_panel_module_navigation(const std::vector<PanelModule>& modules)
-    {
-        auto visibleCount = visible_panel_module_count(modules);
-        auto hasMultipleModules = visibleCount > 1;
-        auto& module = modules[g_activePanelModule];
-
-        auto arrowSize = ImVec2(28.0f, 24.0f);
-        auto availableWidth = ImGui::GetContentRegionAvail().x;
-        auto titleWidth = std::max(40.0f, availableWidth - (arrowSize.x * 2.0f) - 12.0f);
-
-        if (!hasMultipleModules)
-            ImGui::BeginDisabled();
-
-        if (ImGui::ArrowButtonEx(
-            "##panel_prev_module",
-            ImGuiDir_Left,
-            arrowSize,
-            ImGuiButtonFlags_PressedOnClick | ImGuiButtonFlags_NoHoldingActiveId))
-        {
-            g_activePanelModule = next_visible_panel_module_index(modules, g_activePanelModule, -1);
-            mark_imgui_settings_dirty();
-            g_clearImguiActiveId = true;
-        }
-
-        ImGui::SameLine();
-
-        if (!hasMultipleModules)
-            ImGui::EndDisabled();
-
-        auto titleMin = ImGui::GetCursorScreenPos();
-        auto titleMax = ImVec2(titleMin.x + titleWidth, titleMin.y + arrowSize.y);
-        ImGui::GetWindowDrawList()->AddRectFilled(titleMin, titleMax, IM_COL32(18, 20, 24, 205), 4.0f);
-        auto textSize = ImGui::CalcTextSize(module.title);
-        ImGui::SetCursorScreenPos(ImVec2(
-            titleMin.x + std::max(0.0f, (titleWidth - textSize.x) * 0.5f),
-            titleMin.y + std::max(0.0f, (arrowSize.y - textSize.y) * 0.5f)));
-        ImGui::TextUnformatted(module.title);
-        ImGui::SetCursorScreenPos(ImVec2(titleMax.x + 6.0f, titleMin.y));
-
-        if (!hasMultipleModules)
-            ImGui::BeginDisabled();
-
-        if (ImGui::ArrowButtonEx(
-            "##panel_next_module",
-            ImGuiDir_Right,
-            arrowSize,
-            ImGuiButtonFlags_PressedOnClick | ImGuiButtonFlags_NoHoldingActiveId))
-        {
-            g_activePanelModule = next_visible_panel_module_index(modules, g_activePanelModule, 1);
-            mark_imgui_settings_dirty();
-            g_clearImguiActiveId = true;
-        }
-
-        if (!hasMultipleModules)
-            ImGui::EndDisabled();
-
-        ImGui::Spacing();
-        ImGui::Separator();
+        ImGui::SetCursorScreenPos(ImVec2(min.x, max.y + 2.0f));
     }
 
     void draw_panel_shell()
     {
-        auto& modules = panel_modules();
-        if (modules.empty())
-            return;
-
-        g_activePanelModule = std::clamp(g_activePanelModule, 0, static_cast<int>(modules.size()) - 1);
-        if (!is_visible_panel_module(modules[g_activePanelModule]))
-            g_activePanelModule = first_visible_panel_module_index(modules);
-
         ImGui::SetNextWindowBgAlpha(0.94f);
         ImGui::SetNextWindowPos(g_panelPosition, ImGuiCond_Always);
-        if (g_restorePanelLayout)
-        {
-            ImGui::SetNextWindowSize(g_panelSize, ImGuiCond_Always);
-            g_restorePanelLayout = false;
-        }
+        ImGui::SetNextWindowSize(ImVec2(kPanelFixedW, kPanelFixedH), ImGuiCond_Always);
 
         bool panelOpen = g_showPanel;
         if (ImGui::Begin(
-            "User Panel",
+            "##roulette_panel",
             &panelOpen,
             ImGuiWindowFlags_NoTitleBar
                 | ImGuiWindowFlags_NoCollapse
+                | ImGuiWindowFlags_NoResize
                 | ImGuiWindowFlags_NoFocusOnAppearing
                 | ImGuiWindowFlags_NoBringToFrontOnFocus))
         {
             auto windowPos = ImGui::GetWindowPos();
-            auto windowSize = ImGui::GetWindowSize();
             g_panelPosition = windowPos;
-            g_panelSize = windowSize;
             g_panelWindowRect.left = static_cast<LONG>(windowPos.x);
             g_panelWindowRect.top = static_cast<LONG>(windowPos.y);
-            g_panelWindowRect.right = static_cast<LONG>(windowPos.x + windowSize.x);
-            g_panelWindowRect.bottom = static_cast<LONG>(windowPos.y + windowSize.y);
+            g_panelWindowRect.right = static_cast<LONG>(windowPos.x + kPanelFixedW);
+            g_panelWindowRect.bottom = static_cast<LONG>(windowPos.y + kPanelFixedH);
 
             draw_panel_header(panelOpen);
 
-            draw_panel_module_navigation(modules);
-
-            ImGui::BeginChild("##module_body", ImVec2(0.0f, 0.0f), false);
-            auto& module = modules[g_activePanelModule];
-            if (module.draw)
-                module.draw();
+            ImGui::BeginChild("##roulette_body", ImVec2(0.0f, 0.0f), false);
+            draw_roulette_section();
             ImGui::EndChild();
         }
         ImGui::End();
         g_showPanel = panelOpen;
-    }
-
-    bool should_run_overlay_session()
-    {
-        return g_showPanel || is_game_scene();
     }
 
     void toggle_realtime_feature_bundle()
@@ -1403,47 +1444,6 @@ namespace imgui_layer
         g_waitingWelcomeMessage = false;
     }
 
-    bool is_point_in_rect(LPARAM lParam, const RECT& rect)
-    {
-        if (rect.left == rect.right || rect.top == rect.bottom)
-            return false;
-
-        POINT point{
-            static_cast<LONG>(static_cast<short>(LOWORD(lParam))),
-            static_cast<LONG>(static_cast<short>(HIWORD(lParam)))
-        };
-        ScreenToClient(g_overlayHwnd, &point);
-        return PtInRect(&rect, point) == TRUE;
-    }
-
-    bool get_overlay_mouse_pos(ImVec2& pos)
-    {
-        POINT point{};
-        if (!GetCursorPos(&point) || !g_overlayHwnd)
-            return false;
-
-        ScreenToClient(g_overlayHwnd, &point);
-        pos = ImVec2(static_cast<float>(point.x), static_cast<float>(point.y));
-        return true;
-    }
-
-    bool is_pos_in_rect(const ImVec2& pos, const RECT& rect)
-    {
-        return rect.left != rect.right
-            && rect.top != rect.bottom
-            && pos.x >= static_cast<float>(rect.left)
-            && pos.x < static_cast<float>(rect.right)
-            && pos.y >= static_cast<float>(rect.top)
-            && pos.y < static_cast<float>(rect.bottom);
-    }
-
-    bool is_point_in_interactive_area(LPARAM lParam)
-    {
-        return is_point_in_rect(lParam, g_panelWindowRect)
-            || is_point_in_rect(lParam, g_emojiButtonRect)
-            || is_point_in_rect(lParam, g_emojiPickerRect);
-    }
-
     bool is_cursor_in_rect(const RECT& rect)
     {
         if (rect.left == rect.right || rect.top == rect.bottom)
@@ -1454,14 +1454,10 @@ namespace imgui_layer
             return false;
 
         ScreenToClient(g_overlayHwnd, &point);
+        auto offset = get_window_to_client_offset();
+        point.x += static_cast<LONG>(offset.x);
+        point.y += static_cast<LONG>(offset.y);
         return PtInRect(&rect, point) == TRUE;
-    }
-
-    bool has_interactive_overlay()
-    {
-        return g_showPanel
-            || is_cursor_in_rect(g_emojiButtonRect)
-            || (g_showEmojiPicker && is_cursor_in_rect(g_emojiPickerRect));
     }
 
     void remember_rect(RECT& rect, const ImVec2& min, const ImVec2& max)
@@ -1472,11 +1468,6 @@ namespace imgui_layer
         rect.bottom = static_cast<LONG>(max.y);
     }
 
-    bool has_saved_position(const ImVec2& position)
-    {
-        return position.x >= 0.0f && position.y >= 0.0f;
-    }
-
     ImVec2 clamp_window_position(const ImVec2& position, const ImVec2& size, const ImVec2& displaySize)
     {
         return ImVec2(
@@ -1484,36 +1475,10 @@ namespace imgui_layer
             std::clamp(position.y, 8.0f, std::max(8.0f, displaySize.y - size.y - 8.0f)));
     }
 
-    void handle_emoji_button_interaction(const ImVec2& buttonSize, const ImVec2& displaySize)
+    void handle_emoji_button_interaction()
     {
-        g_emojiButtonPosition = clamp_window_position(kFixedEmojiButtonPosition, buttonSize, displaySize);
-
-        ImVec2 mousePos{};
-        auto hasMousePos = get_overlay_mouse_pos(mousePos);
-        auto mouseDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
-        auto mousePressed = mouseDown && !g_emojiButtonMouseWasDown;
-        auto mouseReleased = !mouseDown && g_emojiButtonMouseWasDown;
-
-        if (hasMousePos && mousePressed && is_pos_in_rect(mousePos, g_emojiButtonRect))
-        {
-            g_draggingEmojiButton = true;
-            g_draggedEmojiButton = false;
-            g_emojiButtonDragStart = g_emojiButtonPosition;
-            g_emojiButtonDragOffset = ImVec2(
-                mousePos.x - g_emojiButtonPosition.x,
-                mousePos.y - g_emojiButtonPosition.y);
-        }
-
-        if (mouseReleased && g_draggingEmojiButton)
-        {
-            if (hasMousePos && is_pos_in_rect(mousePos, g_emojiButtonRect))
-                g_showEmojiPicker = !g_showEmojiPicker;
-
-            g_draggingEmojiButton = false;
-            g_draggedEmojiButton = false;
-        }
-
-        g_emojiButtonMouseWasDown = mouseDown;
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+            g_showEmojiPicker = !g_showEmojiPicker;
     }
 
     constexpr const char* kEmojiSahFolder = "emojis";
@@ -1711,7 +1676,20 @@ namespace imgui_layer
             }
 
             if (is_sah_visual_token_folder(lowerPath, VisualTokenKind::Emoji))
-                try_add_visual_token_from_sah_file(VisualTokenKind::Emoji, fileName, fileOffset, fileSize);
+            {
+                // Check for roulette background PNG in the emojis folder
+                auto lowerFileName = to_lower_ascii(fileName);
+                if (lowerFileName == "roulette_bg.png" && !g_rouletteBgFound)
+                {
+                    g_rouletteBgFound = true;
+                    g_rouletteBgDataOffset = fileOffset;
+                    g_rouletteBgDataSize = fileSize;
+                }
+                else
+                {
+                    try_add_visual_token_from_sah_file(VisualTokenKind::Emoji, fileName, fileOffset, fileSize);
+                }
+            }
             else if (is_sah_visual_token_folder(lowerPath, VisualTokenKind::Gif))
                 try_add_visual_token_from_sah_file(VisualTokenKind::Gif, fileName, fileOffset, fileSize);
         }
@@ -1756,15 +1734,181 @@ namespace imgui_layer
         });
     }
 
-    FARPROC get_d3dx_proc(const char* name)
+    // ---------------------------------------------------------------------------
+    // Texture loading via stb_image (PNG) and raw DDS parsing — no d3dx9 needed
+    // ---------------------------------------------------------------------------
+
+    // DDS header structures (subset needed for DXT-compressed icon atlases)
+    #pragma pack(push, 1)
+    struct DDS_PIXELFORMAT
     {
-        auto d3dx9 = GetModuleHandleA("d3dx9_43.dll");
-        if (!d3dx9)
-            d3dx9 = LoadLibraryA("d3dx9_43.dll");
-        if (!d3dx9)
+        DWORD dwSize;
+        DWORD dwFlags;
+        DWORD dwFourCC;
+        DWORD dwRGBBitCount;
+        DWORD dwRBitMask;
+        DWORD dwGBitMask;
+        DWORD dwBBitMask;
+        DWORD dwABitMask;
+    };
+
+    struct DDS_HEADER
+    {
+        DWORD dwMagic;       // 'DDS '
+        DWORD dwSize;        // 124
+        DWORD dwFlags;
+        DWORD dwHeight;
+        DWORD dwWidth;
+        DWORD dwPitchOrLinearSize;
+        DWORD dwDepth;
+        DWORD dwMipMapCount;
+        DWORD dwReserved1[11];
+        DDS_PIXELFORMAT ddspf;
+        DWORD dwCaps;
+        DWORD dwCaps2;
+        DWORD dwCaps3;
+        DWORD dwCaps4;
+        DWORD dwReserved2;
+    };
+    #pragma pack(pop)
+
+    constexpr DWORD kDdsMagic = 0x20534444; // 'DDS '
+    constexpr DWORD kDdpfFourCC = 0x4;
+
+    static DWORD make_fourcc(char a, char b, char c, char d)
+    {
+        return static_cast<DWORD>(a) | (static_cast<DWORD>(b) << 8)
+            | (static_cast<DWORD>(c) << 16) | (static_cast<DWORD>(d) << 24);
+    }
+
+    LPDIRECT3DTEXTURE9 create_texture_from_dds_memory(LPDIRECT3DDEVICE9 device, const void* data, UINT dataSize)
+    {
+        if (!device || !data || dataSize < sizeof(DDS_HEADER))
             return nullptr;
 
-        return GetProcAddress(d3dx9, name);
+        auto* header = static_cast<const DDS_HEADER*>(data);
+        if (header->dwMagic != kDdsMagic)
+            return nullptr;
+
+        auto width = header->dwWidth;
+        auto height = header->dwHeight;
+        if (width == 0 || height == 0)
+            return nullptr;
+
+        D3DFORMAT format = D3DFMT_UNKNOWN;
+        UINT blockSize = 16;
+        if (header->ddspf.dwFlags & kDdpfFourCC)
+        {
+            auto fourCC = header->ddspf.dwFourCC;
+            if (fourCC == make_fourcc('D', 'X', 'T', '1'))      { format = D3DFMT_DXT1; blockSize = 8; }
+            else if (fourCC == make_fourcc('D', 'X', 'T', '3')) { format = D3DFMT_DXT3; }
+            else if (fourCC == make_fourcc('D', 'X', 'T', '5')) { format = D3DFMT_DXT5; }
+        }
+
+        if (format == D3DFMT_UNKNOWN)
+            return nullptr;
+
+        auto pixelDataOffset = static_cast<UINT>(sizeof(DWORD) + header->dwSize);
+        if (pixelDataOffset >= dataSize)
+            return nullptr;
+
+        auto pixelDataSize = dataSize - pixelDataOffset;
+        auto* pixelData = static_cast<const BYTE*>(data) + pixelDataOffset;
+
+        // Compute expected size for mip level 0
+        auto blocksWide = (width + 3) / 4;
+        auto blocksHigh = (height + 3) / 4;
+        auto expectedSize = blocksWide * blocksHigh * blockSize;
+        if (pixelDataSize < expectedSize)
+            return nullptr;
+
+        LPDIRECT3DTEXTURE9 texture = nullptr;
+        if (FAILED(device->CreateTexture(width, height, 1, 0, format, D3DPOOL_MANAGED, &texture, nullptr)) || !texture)
+            return nullptr;
+
+        D3DLOCKED_RECT locked{};
+        if (FAILED(texture->LockRect(0, &locked, nullptr, 0)))
+        {
+            texture->Release();
+            return nullptr;
+        }
+
+        // For block-compressed formats, copy row-of-blocks at a time
+        auto srcPitch = blocksWide * blockSize;
+        for (UINT row = 0; row < blocksHigh; ++row)
+        {
+            auto* dst = static_cast<BYTE*>(locked.pBits) + row * locked.Pitch;
+            auto* src = pixelData + row * srcPitch;
+            std::memcpy(dst, src, srcPitch);
+        }
+
+        texture->UnlockRect(0);
+        return texture;
+    }
+
+    LPDIRECT3DTEXTURE9 create_texture_from_png_memory(LPDIRECT3DDEVICE9 device, const void* data, UINT dataSize)
+    {
+        if (!device || !data || dataSize == 0)
+            return nullptr;
+
+        int width = 0, height = 0, channels = 0;
+        auto* pixels = stbi_load_from_memory(
+            static_cast<const stbi_uc*>(data),
+            static_cast<int>(dataSize),
+            &width, &height, &channels, 4); // force RGBA
+        if (!pixels)
+            return nullptr;
+
+        LPDIRECT3DTEXTURE9 texture = nullptr;
+        if (FAILED(device->CreateTexture(
+            static_cast<UINT>(width), static_cast<UINT>(height),
+            1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &texture, nullptr)) || !texture)
+        {
+            stbi_image_free(pixels);
+            return nullptr;
+        }
+
+        D3DLOCKED_RECT locked{};
+        if (FAILED(texture->LockRect(0, &locked, nullptr, 0)))
+        {
+            texture->Release();
+            stbi_image_free(pixels);
+            return nullptr;
+        }
+
+        // stb_image outputs RGBA, D3D9 expects BGRA (A8R8G8B8) — swizzle R<->B
+        for (int y = 0; y < height; ++y)
+        {
+            auto* src = pixels + y * width * 4;
+            auto* dst = static_cast<BYTE*>(locked.pBits) + y * locked.Pitch;
+            for (int x = 0; x < width; ++x)
+            {
+                dst[x * 4 + 0] = src[x * 4 + 2]; // B
+                dst[x * 4 + 1] = src[x * 4 + 1]; // G
+                dst[x * 4 + 2] = src[x * 4 + 0]; // R
+                dst[x * 4 + 3] = src[x * 4 + 3]; // A
+            }
+        }
+
+        texture->UnlockRect(0);
+        stbi_image_free(pixels);
+        return texture;
+    }
+
+    // Auto-detect format by header and load accordingly (replaces D3DXCreateTextureFromFileInMemory)
+    LPDIRECT3DTEXTURE9 create_texture_from_image_memory(LPDIRECT3DDEVICE9 device, const void* data, UINT dataSize)
+    {
+        if (!device || !data || dataSize < 4)
+            return nullptr;
+
+        auto magic = *static_cast<const DWORD*>(data);
+
+        // DDS: 'DDS ' magic
+        if (magic == kDdsMagic)
+            return create_texture_from_dds_memory(device, data, dataSize);
+
+        // PNG / JPEG / BMP / TGA — anything stb_image supports
+        return create_texture_from_png_memory(device, data, dataSize);
     }
 
     bool read_client_data_file(const EmojiEntry& emoji, std::vector<char>& fileData)
@@ -1788,21 +1932,47 @@ namespace imgui_layer
 
     LPDIRECT3DTEXTURE9 load_png_texture(EmojiEntry& emoji)
     {
-        using CreateTextureFromFileInMemory = HRESULT(WINAPI*)(LPDIRECT3DDEVICE9, LPCVOID, UINT, LPDIRECT3DTEXTURE9*);
-        auto createTexture = reinterpret_cast<CreateTextureFromFileInMemory>(
-            get_d3dx_proc("D3DXCreateTextureFromFileInMemory"));
-        if (!createTexture || !g_device)
+        if (!g_device)
             return nullptr;
 
         std::vector<char> fileData;
         if (!read_client_data_file(emoji, fileData))
             return nullptr;
 
-        LPDIRECT3DTEXTURE9 texture = nullptr;
-        if (SUCCEEDED(createTexture(g_device, fileData.data(), static_cast<UINT>(fileData.size()), &texture)) && texture)
-            return texture;
+        return create_texture_from_image_memory(g_device, fileData.data(), static_cast<UINT>(fileData.size()));
+    }
 
-        return nullptr;
+    LPDIRECT3DTEXTURE9 load_roulette_bg_texture()
+    {
+        if (g_rouletteBgLoadAttempted)
+            return g_rouletteBgTexture;
+        g_rouletteBgLoadAttempted = true;
+
+        if (!g_rouletteBgFound || g_rouletteBgDataSize == 0 || g_rouletteBgDataSize > UINT_MAX)
+            return nullptr;
+
+        if (!g_device)
+        {
+            g_rouletteBgLoadAttempted = false; // retry later when device is ready
+            return nullptr;
+        }
+
+        auto safPath = get_game_relative_path("data.saf");
+        std::ifstream stream(safPath, std::ios::binary);
+        if (!stream)
+            return nullptr;
+
+        stream.seekg(static_cast<std::streamoff>(g_rouletteBgDataOffset), std::ios::beg);
+        if (!stream)
+            return nullptr;
+
+        std::vector<char> fileData(static_cast<std::size_t>(g_rouletteBgDataSize), 0);
+        stream.read(fileData.data(), static_cast<std::streamsize>(fileData.size()));
+        if (stream.gcount() != static_cast<std::streamsize>(fileData.size()))
+            return nullptr;
+
+        g_rouletteBgTexture = create_texture_from_image_memory(g_device, fileData.data(), static_cast<UINT>(fileData.size()));
+        return g_rouletteBgTexture;
     }
 
     bool ensure_gdiplus_started()
@@ -2057,10 +2227,14 @@ namespace imgui_layer
 
     bool is_lower_chat_type(int chatType)
     {
-        if (chatType == 0 || chatType == 49)
-            return true;
+        // Upper bar: 15=orange, 16=red, 17=red, 18=yellow, 19=green, 20=violet, 21=light blue, 22=light green, 34=light grey
+        if (chatType == 15 || chatType == 16 || chatType == 17 || chatType == 18
+            || chatType == 19 || chatType == 20 || chatType == 21 || chatType == 22
+            || chatType == 34)
+            return false;
 
-        return chatType >= 35 && chatType <= 47;
+        // Lower chat: types 0-49
+        return chatType >= 0 && chatType <= 49;
     }
 
     float measure_chat_prefix_width(const std::string& prefix)
@@ -2093,80 +2267,17 @@ namespace imgui_layer
         return fallbackWidth;
     }
 
-    void remember_chat_emoji_line(int chatType, ChatEmojiLineOverlay&& line)
-    {
-        if (!is_lower_chat_type(chatType))
-            return;
-
-        std::lock_guard<std::mutex> lock(g_chatEmojiMutex);
-        g_chatEmojiLines.push_back(std::move(line));
-        while (g_chatEmojiLines.size() > 80)
-            g_chatEmojiLines.pop_front();
-    }
-
-    const char* __cdecl prepare_chat_text_for_emojis(int chatType, const char* text)
+    bool sanitize_visual_tokens(const char* text, std::string& output, ChatEmojiLineOverlay& line, int replacementSpaces)
     {
         if (!text || text[0] == '\0')
-            return text;
-
-        ChatEmojiLineOverlay line{};
-        line.tick = GetTickCount();
-        g_sanitizedChatText.clear();
+            return false;
 
         auto changed = false;
         auto textLength = std::strlen(text);
-        g_sanitizedChatText.reserve(textLength);
-
-        for (auto index = std::size_t{ 0 }; index < textLength;)
-        {
-            auto emoji = find_emoji_by_token(text + index);
-            if (emoji)
-            {
-                auto tokenLength = emoji->token.size();
-                if (is_visual_token_enabled(emoji->kind))
-                {
-                    if (is_lower_chat_type(chatType))
-                        line.tokens.push_back({ emoji, measure_chat_prefix_width(g_sanitizedChatText) });
-
-                    g_sanitizedChatText.append(5, ' ');
-                }
-                index += tokenLength;
-                changed = true;
-                continue;
-            }
-
-            VisualTokenKind tokenKind{};
-            std::size_t tokenLength = 0;
-            if (match_visual_token_text(text + index, tokenKind, tokenLength) && !is_visual_token_enabled(tokenKind))
-            {
-                index += tokenLength;
-                changed = true;
-                continue;
-            }
-
-            g_sanitizedChatText.push_back(text[index]);
-            ++index;
-        }
-
-        remember_chat_emoji_line(chatType, std::move(line));
-
-        if (!changed)
-            return text;
-
-        return g_sanitizedChatText.c_str();
-    }
-
-    const char* __cdecl prepare_floating_text_for_emojis(const char* text)
-    {
-        if (!text || text[0] == '\0')
-            return text;
-
-        ChatEmojiLineOverlay line{};
+        output.clear();
+        output.reserve(textLength);
+        line = {};
         line.tick = GetTickCount();
-        auto changed = false;
-        auto textLength = std::strlen(text);
-        g_sanitizedFloatingText.clear();
-        g_sanitizedFloatingText.reserve(textLength);
 
         for (auto index = std::size_t{ 0 }; index < textLength;)
         {
@@ -2175,9 +2286,10 @@ namespace imgui_layer
             {
                 if (is_visual_token_enabled(emoji->kind))
                 {
-                    line.tokens.push_back({ emoji, measure_chat_prefix_width(g_sanitizedFloatingText) });
-                    g_sanitizedFloatingText.append(4, ' ');
+                    line.tokens.push_back({ emoji, measure_chat_prefix_width(output) });
+                    output.append(replacementSpaces, ' ');
                 }
+
                 index += emoji->token.size();
                 changed = true;
                 continue;
@@ -2192,18 +2304,195 @@ namespace imgui_layer
                 continue;
             }
 
-            g_sanitizedFloatingText.push_back(text[index]);
+            output.push_back(text[index]);
             ++index;
         }
 
+        return changed;
+    }
+
+    int estimate_visual_lines(const char* text)
+    {
+        if (!text || text[0] == '\0' || !g_var)
+            return 1;
+
+        auto len = std::strlen(text);
+        auto textWidth = measure_chat_prefix_width(std::string(text, len));
+        auto clientW = static_cast<float>(g_var->client.width);
+        // Conservative margin: the game's word-wrap width is slightly tighter than the
+        // geometric chat area, so subtract extra padding to avoid underestimating lines.
+        auto chatAreaWidth = clientW * g_tune.chatRightPct - g_tune.chatTextX - 14.0f;
+        if (chatAreaWidth < 50.0f) chatAreaWidth = 50.0f;
+
+        auto lines = static_cast<int>(std::ceil(textWidth / chatAreaWidth));
+        if (lines < 1) lines = 1;
+        if (lines > 5) lines = 5;
+        return lines;
+    }
+
+    void remember_chat_emoji_line(int chatType, const char* text, ChatEmojiLineOverlay&& line)
+    {
+        if (!is_lower_chat_type(chatType) || !text || text[0] == '\0')
+            return;
+
+        auto vLines = estimate_visual_lines(text);
+
+        std::lock_guard<std::mutex> lock(g_chatEmojiMutex);
+        g_lowerChatEmojiLines.push_back({ text, std::move(line.tokens), vLines });
+        while (g_lowerChatEmojiLines.size() > 100)
+            g_lowerChatEmojiLines.pop_front();
+
+        // Auto-scroll to bottom when new message arrives (like the game does)
+        g_chatScrollOffset = 0;
+    }
+
+    bool matches_sanitized_static_text(const char* text, const std::string& expected, std::size_t* outPrefixLen = nullptr)
+    {
+        if (outPrefixLen)
+            *outPrefixLen = 0;
+
+        if (!text || expected.empty())
+            return false;
+
+        auto textLength = std::strlen(text);
+        auto expLen = expected.size();
+
+        if (textLength == 0 || expLen == 0)
+            return false;
+
+        if (textLength <= expLen)
+        {
+            if (std::strncmp(text, expected.c_str(), textLength) != 0)
+                return false;
+            for (auto i = textLength; i < expLen; ++i)
+            {
+                if (expected[i] != ' ')
+                    return false;
+            }
+            return true;
+        }
+
+        auto found = std::strstr(text, expected.c_str());
+        if (found)
+        {
+            if (outPrefixLen)
+                *outPrefixLen = static_cast<std::size_t>(found - text);
+            return true;
+        }
+
+        auto nonSpaceEnd = expLen;
+        while (nonSpaceEnd > 0 && expected[nonSpaceEnd - 1] == ' ')
+            --nonSpaceEnd;
+
+        if (nonSpaceEnd >= 4)
+        {
+            std::string trimmed = expected.substr(0, nonSpaceEnd);
+            found = std::strstr(text, trimmed.c_str());
+            if (found)
+            {
+                if (outPrefixLen)
+                    *outPrefixLen = static_cast<std::size_t>(found - text);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    bool safe_matches_sanitized_static_text(const char* text, const std::string& expected, std::size_t* outPrefixLen = nullptr)
+    {
+        __try
+        {
+            return matches_sanitized_static_text(text, expected, outPrefixLen);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    const char* __cdecl prepare_chat_text_for_emojis(int chatType, const char* text)
+    {
+        // Record every chat type for the GM debug panel
+        debug_panel::record_chat_type(chatType, text);
+
+        if (!text || text[0] == '\0')
+            return text;
+
+        ChatEmojiLineOverlay line{};
+        auto changed = sanitize_visual_tokens(text, g_sanitizedChatText, line, 5);
+
+        if (!changed)
+        {
+            ChatEmojiLineOverlay emptyLine{};
+            remember_chat_emoji_line(chatType, text, std::move(emptyLine));
+            return text;
+        }
+
+        remember_chat_emoji_line(chatType, g_sanitizedChatText.c_str(), std::move(line));
+        return g_sanitizedChatText.c_str();
+    }
+
+    const char* prepare_text_for_emojis(const char* text, bool pushStaticCreateContext)
+    {
+        if (!text || text[0] == '\0')
+            return text;
+
+        ChatEmojiLineOverlay line{};
+        auto changed = sanitize_visual_tokens(text, g_sanitizedFloatingText, line, 4);
+        auto* result = changed ? g_sanitizedFloatingText.c_str() : text;
+
+        if (!changed)
+        {
+            std::lock_guard<std::mutex> lock(g_chatEmojiMutex);
+            for (auto it = g_lowerChatEmojiLines.rbegin(); it != g_lowerChatEmojiLines.rend(); ++it)
+            {
+                std::size_t prefixLen = 0;
+                if (matches_sanitized_static_text(text, it->text, &prefixLen))
+                {
+                    line.tick = GetTickCount();
+                    line.tokens = it->tokens;
+
+                    if (prefixLen > 0)
+                    {
+                        std::string prefix(text, prefixLen);
+                        auto prefixWidth = measure_chat_prefix_width(prefix);
+                        for (auto& token : line.tokens)
+                            token.xOffset += prefixWidth;
+                    }
+                    break;
+                }
+            }
+        }
+
+        if (pushStaticCreateContext)
+        {
+            g_staticTextCreateStack.push_back(std::move(line));
+        }
+        else
         {
             std::lock_guard<std::mutex> lock(g_floatingEmojiMutex);
-            g_hasPendingFloatingEmojiLine = changed && !line.tokens.empty();
+            g_hasPendingFloatingEmojiLine = !line.tokens.empty();
             if (g_hasPendingFloatingEmojiLine)
                 g_pendingFloatingEmojiLine = std::move(line);
         }
 
-        return changed ? g_sanitizedFloatingText.c_str() : text;
+        return result;
+    }
+
+    const char* __cdecl prepare_static_text_for_emojis(const char* text)
+    {
+        return prepare_text_for_emojis(text, true);
+    }
+
+    constexpr std::size_t kMaxBubbleTextLength = 30;
+
+    const char* __cdecl prepare_floating_text_for_emojis(const char* text)
+    {
+        // Skip emoji rendering in bubbles for long messages — they wrap and look broken
+        if (text && std::strlen(text) > kMaxBubbleTextLength)
+            return text;
+        return prepare_text_for_emojis(text, false);
     }
 
     void __cdecl capture_floating_static_text(void* staticText)
@@ -2219,6 +2508,24 @@ namespace imgui_layer
         g_hasPendingFloatingEmojiLine = false;
     }
 
+    void __cdecl capture_created_static_text(void* staticText)
+    {
+        if (g_staticTextCreateStack.empty())
+        {
+            capture_floating_static_text(staticText);
+            return;
+        }
+
+        auto line = std::move(g_staticTextCreateStack.back());
+        g_staticTextCreateStack.pop_back();
+
+        if (!staticText || line.tokens.empty())
+            return;
+
+        std::lock_guard<std::mutex> lock(g_floatingEmojiMutex);
+        g_floatingEmojiLines[staticText] = std::move(line);
+    }
+
     void __cdecl capture_chat_balloon_text(void* chatBalloon)
     {
         if (!chatBalloon)
@@ -2228,115 +2535,265 @@ namespace imgui_layer
         capture_floating_static_text(staticText);
     }
 
-    void __cdecl record_floating_static_text_render(void* staticText, int x, int y)
+    bool is_lower_chat_render_position(int x, int y)
     {
-        std::lock_guard<std::mutex> lock(g_floatingEmojiMutex);
-        auto line = g_floatingEmojiLines.find(staticText);
-        if (line == g_floatingEmojiLines.end() || line->second.tokens.empty())
+        return x >= 0
+            && x <= static_cast<int>(g_tune.lowerChatMaxX)
+            && y >= static_cast<int>(g_tune.lowerChatMinY);
+    }
+
+    void __cdecl record_native_text_draw_probe(std::uintptr_t returnAddress, const char* text, int x, int y)
+    {
+        if (!is_lower_chat_render_position(x, y))
             return;
 
-        g_floatingEmojiRenders[staticText] = {
+        std::vector<ChatEmojiTokenOverlay> tokens;
+        {
+            std::lock_guard<std::mutex> lock(g_chatEmojiMutex);
+            for (auto it = g_lowerChatEmojiLines.rbegin(); it != g_lowerChatEmojiLines.rend(); ++it)
+            {
+                std::size_t prefixLen = 0;
+                if (safe_matches_sanitized_static_text(text, it->text, &prefixLen))
+                {
+                    tokens = it->tokens;
+                    if (prefixLen > 0)
+                    {
+                        std::string prefix(text, prefixLen);
+                        auto prefixWidth = measure_chat_prefix_width(prefix);
+                        for (auto& token : tokens)
+                            token.xOffset += prefixWidth;
+                    }
+                    break;
+                }
+            }
+        }
+
+        if (tokens.empty())
+            return;
+
+        std::lock_guard<std::mutex> lock(g_floatingEmojiMutex);
+        g_floatingEmojiRenders.push_back({
             GetTickCount(),
             x,
             y,
-            line->second.tokens
-        };
+            true,
+            std::move(tokens) });
+
+        if (g_floatingEmojiRenders.size() > 512)
+            g_floatingEmojiRenders.erase(g_floatingEmojiRenders.begin(), g_floatingEmojiRenders.begin() + (g_floatingEmojiRenders.size() - 512));
     }
 
-    void draw_chat_emoji_overlays()
+    void __cdecl record_floating_static_text_render(void* staticText, int x, int y)
     {
-        if (!is_game_scene())
+        if (!staticText)
             return;
 
-        std::vector<ChatEmojiLineOverlay> lines;
+        std::lock_guard<std::mutex> lock(g_floatingEmojiMutex);
+        auto line = g_floatingEmojiLines.find(staticText);
+        auto lowerChat = is_lower_chat_render_position(x, y);
+        if (line == g_floatingEmojiLines.end())
+            return;
+
+        if (line->second.tokens.empty())
+            return;
+
+        auto now = GetTickCount();
+        for (auto& render : g_floatingEmojiRenders)
         {
-            std::lock_guard<std::mutex> lock(g_chatEmojiMutex);
-            lines.assign(g_chatEmojiLines.begin(), g_chatEmojiLines.end());
+            if (render.tick == now
+                && render.x == x
+                && render.y == y
+                && render.tokens.size() == line->second.tokens.size())
+            {
+                return;
+            }
         }
 
-        if (lines.empty())
-            return;
+        g_floatingEmojiRenders.push_back({
+            now,
+            x,
+            y,
+            lowerChat,
+            line->second.tokens });
 
-        constexpr auto kMaxVisibleLines = std::size_t{ 12 };
-        auto first = lines.size() > kMaxVisibleLines ? lines.size() - kMaxVisibleLines : std::size_t{ 0 };
-        auto visibleCount = lines.size() - first;
-        auto& io = ImGui::GetIO();
-        auto drawList = ImGui::GetBackgroundDrawList();
-        auto chatLeft = 26.0f;
-        auto chatBottom = std::max(84.0f, io.DisplaySize.y - 72.0f);
-        auto lineHeight = 18.0f;
-        auto iconSize = 16.0f;
+        if (g_floatingEmojiRenders.size() > 512)
+            g_floatingEmojiRenders.erase(g_floatingEmojiRenders.begin(), g_floatingEmojiRenders.begin() + (g_floatingEmojiRenders.size() - 512));
+    }
 
-        for (auto i = std::size_t{ 0 }; i < visibleCount; ++i)
+    void draw_visual_token_run(ImDrawList* drawList, const std::vector<ChatEmojiTokenOverlay>& tokens, float baseX, float baseY, float iconSize)
+    {
+        auto emojiIndex = 0;
+        for (auto& token : tokens)
         {
-            auto& line = lines[first + i];
-            auto y = chatBottom - static_cast<float>(visibleCount - i) * lineHeight - 1.0f;
+            if (!token.emoji || !is_visual_token_enabled(token.emoji->kind))
+                continue;
 
-            for (auto& token : line.tokens)
-            {
-                if (!is_visual_token_enabled(token.emoji->kind))
-                    continue;
+            auto texture = get_emoji_texture(*token.emoji);
+            if (!texture)
+                continue;
 
-                auto x = chatLeft + token.xOffset;
-                auto texture = get_emoji_texture(*token.emoji);
-                auto min = ImVec2(x, y);
-                auto max = ImVec2(x + iconSize, y + iconSize);
-                if (texture)
-                {
-                    drawList->AddImage(reinterpret_cast<ImTextureID>(texture), min, max);
-                }
-            }
+            auto x = baseX + token.xOffset + static_cast<float>(emojiIndex) * 2.0f;
+            drawList->AddImage(
+                reinterpret_cast<ImTextureID>(texture),
+                ImVec2(x, baseY),
+                ImVec2(x + iconSize, baseY + iconSize));
+            ++emojiIndex;
         }
     }
 
     void draw_floating_emoji_overlays()
     {
-        if (!is_game_scene())
+        if (!is_game_scene() || is_emoji_transition_grace_active())
             return;
 
         std::vector<FloatingEmojiRenderOverlay> renders;
         {
             std::lock_guard<std::mutex> lock(g_floatingEmojiMutex);
             auto now = GetTickCount();
+
+            // Only keep very recent entries (single frame)
             for (auto it = g_floatingEmojiRenders.begin(); it != g_floatingEmojiRenders.end();)
             {
-                if (now - it->second.tick > 100)
-                {
+                if (now - it->tick > 35)
                     it = g_floatingEmojiRenders.erase(it);
-                    continue;
-                }
-
-                renders.push_back(it->second);
-                ++it;
+                else
+                    ++it;
             }
+
+            renders = g_floatingEmojiRenders;
         }
+
+        auto drawList = ImGui::GetBackgroundDrawList();
 
         if (renders.empty())
             return;
 
-        auto drawList = ImGui::GetBackgroundDrawList();
-        auto iconSize = 16.0f;
+        auto iconSize = g_tune.floatingIconSize;
+        auto yAdjust = g_tune.floatingYAdjust;
         for (auto& render : renders)
         {
-            auto emojiIndex = 0;
-            for (auto& token : render.tokens)
-            {
-                if (!is_visual_token_enabled(token.emoji->kind))
-                    continue;
+            if (render.lowerChat)
+                continue; // Lower chat emojis are drawn by draw_lower_chat_emoji_overlay
 
-                auto texture = get_emoji_texture(*token.emoji);
-                if (!texture)
-                    continue;
-
-                auto x = static_cast<float>(render.x) + token.xOffset + static_cast<float>(emojiIndex) * 2.0f;
-                auto y = static_cast<float>(render.y) + 11.0f;
-                drawList->AddImage(
-                    reinterpret_cast<ImTextureID>(texture),
-                    ImVec2(x, y),
-                    ImVec2(x + iconSize, y + iconSize));
-                ++emojiIndex;
-            }
+            draw_visual_token_run(
+                drawList,
+                render.tokens,
+                static_cast<float>(render.x),
+                static_cast<float>(render.y) + yAdjust,
+                iconSize);
         }
+    }
+
+    int read_chat_scroll_offset()
+    {
+        return g_chatScrollOffset;
+    }
+
+    void set_chat_scroll_offset(int value)
+    {
+        g_chatScrollOffset = value;
+        if (g_chatScrollOffset < 0) g_chatScrollOffset = 0;
+
+        // Max scroll = total visual lines - minimum visible threshold
+        int totalVisual = 0;
+        {
+            std::lock_guard<std::mutex> lock(g_chatEmojiMutex);
+            for (auto& l : g_lowerChatEmojiLines)
+                totalVisual += l.visualLines;
+        }
+        auto maxScroll = totalVisual - kScrollMinLines;
+        if (maxScroll < 0) maxScroll = 0;
+        if (g_chatScrollOffset > maxScroll) g_chatScrollOffset = maxScroll;
+    }
+
+    void draw_lower_chat_emoji_overlay()
+    {
+        if (!g_var || !is_game_scene())
+            return;
+        if (is_emoji_transition_grace_active())
+            return;
+
+        auto drawList = ImGui::GetBackgroundDrawList();
+        auto iconSize = g_tune.iconSize;
+
+        auto clientW = static_cast<float>(g_var->client.width);
+        auto clientH = static_cast<float>(g_var->client.height);
+
+        auto chatLeftX = 9.0f;
+        auto chatRightX = clientW * g_tune.chatRightPct;
+        auto chatTextX = g_tune.chatTextX;
+        auto lineHeight = g_tune.lineHeight;
+        auto chatBottomY = clientH - g_tune.chatBottomOffset;
+        auto chatTopY = chatBottomY - clientH * g_tune.chatTopPct;
+
+        auto maxVisibleLines = static_cast<int>((chatBottomY - chatTopY) / lineHeight);
+        if (maxVisibleLines < 4) maxVisibleLines = 4;
+        if (maxVisibleLines > 30) maxVisibleLines = 30;
+
+        auto scrollOffset = read_chat_scroll_offset();
+
+        std::lock_guard<std::mutex> lock(g_chatEmojiMutex);
+
+        auto totalLines = static_cast<int>(g_lowerChatEmojiLines.size());
+        if (totalLines == 0)
+            return;
+
+        // Clip to chat area bounds — emojis outside this rect are invisible
+        drawList->PushClipRect(
+            ImVec2(chatLeftX, chatTopY),
+            ImVec2(chatRightX, chatBottomY + iconSize));
+
+        // Walk from newest to oldest, tracking visual line position.
+        // Each message can occupy 1-3 visual lines due to word wrap.
+        auto visualRow = 0;  // visual rows from bottom (0 = bottom-most)
+        for (auto it = g_lowerChatEmojiLines.rbegin();
+            it != g_lowerChatEmojiLines.rend();
+            ++it)
+        {
+            auto msgVisualLines = it->visualLines;
+
+            // This message occupies visual rows [visualRow .. visualRow + msgVisualLines - 1]
+            // The TEXT of this message starts at the TOP visual row of the message
+            auto msgTopRow = visualRow + msgVisualLines - 1;
+
+            // Apply scroll: skip rows below the scroll window
+            if (msgTopRow < scrollOffset)
+            {
+                visualRow += msgVisualLines;
+                continue;
+            }
+
+            // Stop if we're past the visible area
+            auto displayRow = msgTopRow - scrollOffset;
+            if (displayRow >= maxVisibleLines)
+                break;
+
+            if (!it->tokens.empty())
+            {
+                // Emojis render on the FIRST visual line of the message (top of wrapped block)
+                auto y = chatBottomY - static_cast<float>(displayRow + 1) * lineHeight;
+
+                for (auto& token : it->tokens)
+                {
+                    if (!token.emoji || !is_visual_token_enabled(token.emoji->kind))
+                        continue;
+
+                    auto texture = get_emoji_texture(*token.emoji);
+                    if (!texture)
+                        continue;
+
+                    auto x = chatTextX + token.xOffset;
+                    drawList->AddImage(
+                        reinterpret_cast<ImTextureID>(texture),
+                        ImVec2(x, y),
+                        ImVec2(x + iconSize, y + iconSize));
+                }
+            }
+
+            visualRow += msgVisualLines;
+        }
+
+        drawList->PopClipRect();
     }
 
     void release_emoji_textures()
@@ -2646,23 +3103,73 @@ namespace imgui_layer
         if (changed)
             save_imgui_settings();
 
+        // Reposition controls
+        if (g_emojiRepositionMode)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.35f, 0.1f, 0.9f));
+            if (ImGui::Button("Click anywhere to place", ImVec2(-1.0f, 0.0f)))
+                g_emojiRepositionMode = false;
+            ImGui::PopStyleColor();
+        }
+        else
+        {
+            auto availW = ImGui::GetContentRegionAvail().x;
+            auto spacing = ImGui::GetStyle().ItemSpacing.x;
+            auto btnW = (availW - spacing) * 0.5f;
+            if (ImGui::Button("Move", ImVec2(btnW, 0.0f)))
+                g_emojiRepositionMode = true;
+            ImGui::SameLine();
+            if (ImGui::Button("Reset", ImVec2(btnW, 0.0f)))
+            {
+                g_emojiButtonPosition = kDefaultEmojiButtonPosition;
+                g_emojiRepositionMode = false;
+                save_imgui_settings();
+            }
+        }
+
         ImGui::Separator();
     }
 
     void draw_emoji_overlay()
     {
-        if (!is_game_scene())
+        if (!is_game_scene() || is_emoji_transition_grace_active())
             return;
 
         auto& io = ImGui::GetIO();
         if (!is_overlay_display_usable(io.DisplaySize))
             return;
 
-        auto buttonSize = ImVec2(18.0f, 18.0f);
-        g_emojiButtonPosition = clamp_window_position(kFixedEmojiButtonPosition, buttonSize, io.DisplaySize);
+        auto now = GetTickCount();
+        if (static_cast<int32_t>(now - g_emojiSceneTransitionUntilTick) < 0)
+            return;
+
+        auto buttonSize = kEmojiButtonSize;
+        g_emojiButtonPosition = clamp_window_position(g_emojiButtonPosition, buttonSize, io.DisplaySize);
+
+        // In reposition mode the button follows the cursor until clicked
+        if (g_emojiRepositionMode)
+        {
+            auto hasMousePos = io.MousePos.x >= 0.0f && io.MousePos.y >= 0.0f;
+            if (hasMousePos)
+            {
+                auto newPos = ImVec2(io.MousePos.x - buttonSize.x * 0.5f,
+                                     io.MousePos.y - buttonSize.y * 0.5f);
+                g_emojiButtonPosition = clamp_window_position(newPos, buttonSize, io.DisplaySize);
+            }
+
+            // Click anywhere (outside the picker) to confirm placement
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)
+                && !is_cursor_in_rect(g_emojiPickerRect))
+            {
+                g_emojiRepositionMode = false;
+                save_imgui_settings();
+            }
+        }
 
         ImGui::SetNextWindowPos(g_emojiButtonPosition, ImGuiCond_Always);
         ImGui::SetNextWindowBgAlpha(0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
         ImGui::Begin(
             "##emoji_button_overlay",
             nullptr,
@@ -2677,27 +3184,38 @@ namespace imgui_layer
         auto min = ImGui::GetItemRectMin();
         auto max = ImGui::GetItemRectMax();
         remember_rect(g_emojiButtonRect, min, max);
-        handle_emoji_button_interaction(buttonSize, io.DisplaySize);
-        ImGui::GetWindowDrawList()->AddRectFilled(min, max, IM_COL32(28, 23, 18, 215), 5.0f);
-        draw_emoji_fallback(min, max, IM_COL32(246, 199, 63, 255));
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Open emojis");
+        if (!g_emojiRepositionMode)
+            handle_emoji_button_interaction();
+
+        draw_emoji_fallback(min, max,
+            g_emojiRepositionMode ? IM_COL32(28, 23, 18, 255) : IM_COL32(246, 199, 63, 255));
+        if (ImGui::IsItemHovered() || is_cursor_in_rect(g_emojiButtonRect))
+        {
+            ImGui::SetNextWindowPos(ImVec2(min.x - 2.0f, min.y - 24.0f), ImGuiCond_Always);
+            ImGui::BeginTooltip();
+            ImGui::TextUnformatted(g_emojiRepositionMode ? "Click to place here" : "Open emojis");
+            ImGui::EndTooltip();
+        }
 
         ImGui::End();
+        ImGui::PopStyleVar(2);
 
         if (!g_showEmojiPicker)
             return;
 
         ensure_emoji_catalog_loaded();
-        auto pickerSize = ImVec2(190.0f, 198.0f);
-        g_emojiPickerPosition = clamp_window_position(kFixedEmojiPickerPosition, pickerSize, io.DisplaySize);
+        auto pickerSize = kEmojiPickerSize;
+        g_emojiPickerPosition = clamp_window_position(
+            ImVec2(g_emojiButtonPosition.x + kEmojiPickerOffset.x,
+                   g_emojiButtonPosition.y + kEmojiPickerOffset.y),
+            pickerSize, io.DisplaySize);
 
         ImGui::SetNextWindowPos(g_emojiPickerPosition, ImGuiCond_Always);
         ImGui::SetNextWindowSize(pickerSize, ImGuiCond_Always);
-        ImGui::SetNextWindowBgAlpha(0.42f);
+        ImGui::SetNextWindowBgAlpha(0.55f);
         bool pickerOpen = g_showEmojiPicker;
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4.0f, 4.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(3.0f, 3.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 6.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 4.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
         if (ImGui::Begin(
             "##emoji_picker",
@@ -2714,7 +3232,7 @@ namespace imgui_layer
             g_emojiPickerPosition = pos;
             remember_rect(g_emojiPickerRect, pos, ImVec2(pos.x + size.x, pos.y + size.y));
 
-            const auto iconSize = ImVec2(18.0f, 18.0f);
+            const auto iconSize = kEmojiPickerIconSize;
             draw_visual_token_picker_controls();
             if (ImGui::BeginTabBar("##visual_token_tabs", ImGuiTabBarFlags_NoCloseWithMiddleMouseButton))
             {
@@ -2736,231 +3254,55 @@ namespace imgui_layer
         g_showEmojiPicker = pickerOpen;
     }
 
-    void cleanup_device()
+    bool hook_vtable(void* instance, std::size_t index, void* hook, void** original)
+    {
+        if (!instance)
+            return false;
+
+        auto vtable = *reinterpret_cast<void***>(instance);
+        if (!vtable)
+            return false;
+
+        DWORD oldProtect{};
+        if (!VirtualProtect(&vtable[index], sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect))
+            return false;
+
+        if (vtable[index] == hook)
+        {
+            DWORD unused{};
+            VirtualProtect(&vtable[index], sizeof(void*), oldProtect, &unused);
+            return true;
+        }
+
+        *original = vtable[index];
+        vtable[index] = hook;
+
+        DWORD unused{};
+        VirtualProtect(&vtable[index], sizeof(void*), oldProtect, &unused);
+        return true;
+    }
+
+    void release_device_textures_for_reset()
     {
         release_emoji_textures();
         release_item_icon_textures();
 
-        if (g_device)
+        if (g_rouletteBgTexture)
         {
-            g_device->Release();
-            g_device = nullptr;
+            g_rouletteBgTexture->Release();
+            g_rouletteBgTexture = nullptr;
         }
-
-        if (g_d3d9)
-        {
-            g_d3d9->Release();
-            g_d3d9 = nullptr;
-        }
+        g_rouletteBgLoadAttempted = false;
     }
 
-    bool create_device(HWND hwnd)
+    void init_game_imgui(IDirect3DDevice9* device)
     {
-        g_d3d9 = Direct3DCreate9(D3D_SDK_VERSION);
-        if (!g_d3d9)
-            return false;
-
-        RECT rect{};
-        GetClientRect(hwnd, &rect);
-
-        ZeroMemory(&g_presentParameters, sizeof(g_presentParameters));
-        g_presentParameters.Windowed = TRUE;
-        g_presentParameters.SwapEffect = D3DSWAPEFFECT_DISCARD;
-        g_presentParameters.BackBufferFormat = D3DFMT_A8R8G8B8;
-        g_presentParameters.EnableAutoDepthStencil = FALSE;
-        g_presentParameters.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
-        g_presentParameters.BackBufferWidth = rect.right - rect.left;
-        g_presentParameters.BackBufferHeight = rect.bottom - rect.top;
-        g_presentParameters.hDeviceWindow = hwnd;
-
-        auto result = g_d3d9->CreateDevice(
-            D3DADAPTER_DEFAULT,
-            D3DDEVTYPE_HAL,
-            hwnd,
-            D3DCREATE_HARDWARE_VERTEXPROCESSING | D3DCREATE_MULTITHREADED,
-            &g_presentParameters,
-            &g_device);
-
-        if (FAILED(result))
-        {
-            result = g_d3d9->CreateDevice(
-                D3DADAPTER_DEFAULT,
-                D3DDEVTYPE_HAL,
-                hwnd,
-                D3DCREATE_SOFTWARE_VERTEXPROCESSING | D3DCREATE_MULTITHREADED,
-                &g_presentParameters,
-                &g_device);
-        }
-
-        if (FAILED(result))
-        {
-            cleanup_device();
-            return false;
-        }
-
-        return true;
-    }
-
-    void request_device_reset(UINT width, UINT height)
-    {
-        if (width == 0 || height == 0)
+        if (g_imguiInitialized)
             return;
 
-        g_pendingBackBufferWidth = width;
-        g_pendingBackBufferHeight = height;
-        g_deviceResetPending = true;
-    }
-
-    bool reset_device(UINT width, UINT height)
-    {
-        if (!g_device || width <= 0 || height <= 0)
-            return false;
-
-        release_item_icon_textures();
-        ImGui_ImplDX9_InvalidateDeviceObjects();
-        g_presentParameters.BackBufferWidth = width;
-        g_presentParameters.BackBufferHeight = height;
-        auto result = g_device->Reset(&g_presentParameters);
-        if (FAILED(result))
-        {
-            request_device_reset(width, height);
-            return false;
-        }
-
-        ImGui_ImplDX9_CreateDeviceObjects();
-        g_deviceResetPending = false;
-        g_pendingBackBufferWidth = 0;
-        g_pendingBackBufferHeight = 0;
-        return true;
-    }
-
-    void sync_overlay_to_game()
-    {
-        if (!g_overlayHwnd || !g_var->hwnd)
-            return;
-
-        if (IsIconic(g_var->hwnd) || !IsWindowVisible(g_var->hwnd) || !is_game_window_foreground())
-        {
-            if (IsWindowVisible(g_overlayHwnd))
-                ShowWindow(g_overlayHwnd, SW_HIDE);
-            g_lastSyncedGameWindowRect = {};
-            return;
-        }
-
-        RECT rect{};
-        if (!GetWindowRect(g_var->hwnd, &rect))
-            return;
-
-        auto width = rect.right - rect.left;
-        auto height = rect.bottom - rect.top;
-        if (width < 320 || height < 240)
-            return;
-
-        if (!IsWindowVisible(g_overlayHwnd))
-            ShowWindow(g_overlayHwnd, SW_SHOWNA);
-
-        if (!EqualRect(&g_lastSyncedGameWindowRect, &rect))
-        {
-            SetWindowPos(
-                g_overlayHwnd,
-                HWND_TOP,
-                rect.left,
-                rect.top,
-                width,
-                height,
-                SWP_NOACTIVATE);
-            g_lastSyncedGameWindowRect = rect;
-        }
-
-        if (g_presentParameters.BackBufferWidth != static_cast<UINT>(width)
-            || g_presentParameters.BackBufferHeight != static_cast<UINT>(height))
-        {
-            request_device_reset(static_cast<UINT>(width), static_cast<UINT>(height));
-        }
-    }
-
-    void sync_overlay_input_passthrough()
-    {
-        if (!g_overlayHwnd)
-            return;
-
-        auto exStyle = GetWindowLongPtrA(g_overlayHwnd, GWL_EXSTYLE);
-        auto wantsClickThrough = !has_interactive_overlay();
-        auto hasClickThrough = (exStyle & WS_EX_TRANSPARENT) != 0;
-
-        if (wantsClickThrough == hasClickThrough)
-            return;
-
-        if (wantsClickThrough)
-            exStyle |= WS_EX_TRANSPARENT;
-        else
-            exStyle &= ~static_cast<LONG_PTR>(WS_EX_TRANSPARENT);
-
-        SetWindowLongPtrA(g_overlayHwnd, GWL_EXSTYLE, exStyle);
-    }
-
-    LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
-    {
-        switch (msg)
-        {
-        case WM_MOUSEACTIVATE:
-            return MA_NOACTIVATE;
-        case WM_NCHITTEST:
-            if (is_point_in_interactive_area(lParam))
-                return HTCLIENT;
-            return HTTRANSPARENT;
-        default:
-            break;
-        }
-
-        if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wParam, lParam))
-            return TRUE;
-
-        switch (msg)
-        {
-        case WM_SIZE:
-            if (g_device && wParam != SIZE_MINIMIZED)
-                request_device_reset(LOWORD(lParam), HIWORD(lParam));
-            return 0;
-        case WM_DESTROY:
-            return 0;
-        default:
-            return DefWindowProc(hwnd, msg, wParam, lParam);
-        }
-    }
-
-    bool begin_session()
-    {
-        WNDCLASSEXA wndClass{};
-        wndClass.cbSize = sizeof(wndClass);
-        wndClass.lpfnWndProc = wnd_proc;
-        wndClass.hInstance = GetModuleHandleA(nullptr);
-        wndClass.lpszClassName = "ShaiyaImguiOverlay";
-        RegisterClassExA(&wndClass);
-
-        g_overlayHwnd = CreateWindowExA(
-            WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT,
-            wndClass.lpszClassName,
-            "Shaiya ImGui Overlay",
-            WS_POPUP,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            1280,
-            720,
-            g_var->hwnd,
-            nullptr,
-            wndClass.hInstance,
-            nullptr);
-
-        if (!g_overlayHwnd || !create_device(g_overlayHwnd))
-            return false;
-
+        g_overlayHwnd = g_var->hwnd;
+        g_device = device;
         load_imgui_settings();
-
-        SetLayeredWindowAttributes(g_overlayHwnd, RGB(0, 0, 0), 255, LWA_ALPHA);
-        ImGui_ImplWin32_EnableAlphaCompositing(g_overlayHwnd);
-        const MARGINS margins{ -1, -1, -1, -1 };
-        DwmExtendFrameIntoClientArea(g_overlayHwnd, &margins);
 
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
@@ -2971,163 +3313,152 @@ namespace imgui_layer
         io.LogFilename = nullptr;
         io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableKeyboard;
 
-        ImGui_ImplWin32_Init(g_overlayHwnd);
-        ImGui_ImplDX9_Init(g_device);
-
-        ShowWindow(g_overlayHwnd, SW_HIDE);
-        UpdateWindow(g_overlayHwnd);
-        g_closeRequested = false;
-        g_restorePanelLayout = true;
+        ImGui_ImplWin32_Init(g_var->hwnd);
+        ImGui_ImplDX9_Init(device);
+        g_imguiInitialized = true;
         g_panelWindowRect = {};
         g_emojiButtonRect = {};
         g_emojiPickerRect = {};
-        g_pendingBackBufferWidth = 0;
-        g_pendingBackBufferHeight = 0;
-        g_deviceResetPending = false;
-        return true;
     }
 
-    void end_session()
+    void shutdown_game_imgui()
     {
+        if (!g_imguiInitialized)
+            return;
+
         save_imgui_settings();
+        release_device_textures_for_reset();
         ImGui_ImplDX9_Shutdown();
         ImGui_ImplWin32_Shutdown();
         ImGui::DestroyContext();
-        cleanup_device();
-
-        if (g_overlayHwnd)
-        {
-            auto instance = reinterpret_cast<HINSTANCE>(GetWindowLongPtrA(g_overlayHwnd, GWLP_HINSTANCE));
-            DestroyWindow(g_overlayHwnd);
-            g_overlayHwnd = nullptr;
-            UnregisterClassA("ShaiyaImguiOverlay", instance);
-        }
+        g_imguiInitialized = false;
+        g_device = nullptr;
+        g_overlayHwnd = nullptr;
     }
 
-    void run_session()
+    void render_integrated_frame(IDirect3DDevice9* device)
     {
-        MSG msg{};
-        while (g_running && !g_closeRequested)
+        if (!g_running || !g_var->hwnd || !IsWindow(g_var->hwnd))
+            return;
+
+        init_game_imgui(device);
+        g_device = device;
+        g_overlayHwnd = g_var->hwnd;
+
+        if (consume_toggle(VK_F7, g_f7Down))
+            toggle_realtime_feature_bundle();
+
+        if (consume_toggle(VK_F8, g_f8Down))
+            g_showPanel = !g_showPanel;
+
+        update_roulette_spin_state();
+        sync_emoji_overlay_scene_state();
+
+        ImGui_ImplDX9_NewFrame();
+        ImGui_ImplWin32_NewFrame();
+
+        auto& io = ImGui::GetIO();
+        POINT cursor{};
+        if (GetCursorPos(&cursor) && ScreenToClient(g_var->hwnd, &cursor))
         {
-            while (PeekMessage(&msg, nullptr, 0U, 0U, PM_REMOVE))
-            {
-                TranslateMessage(&msg);
-                DispatchMessage(&msg);
-            }
-
-            if (consume_toggle(VK_F7, g_f7Down))
-                toggle_realtime_feature_bundle();
-
-            if (consume_toggle(VK_F8, g_f8Down))
-                g_showPanel = !g_showPanel;
-
-            update_roulette_spin_state();
-
-            if (!should_run_overlay_session())
-                g_closeRequested = true;
-
-            if (!g_var->hwnd || !IsWindow(g_var->hwnd))
-                g_closeRequested = true;
-
-            sync_overlay_to_game();
-            sync_overlay_input_passthrough();
-
-            auto cooperativeLevel = g_device->TestCooperativeLevel();
-            if (cooperativeLevel == D3DERR_DEVICELOST)
-            {
-                Sleep(10);
-                continue;
-            }
-
-            if (cooperativeLevel == D3DERR_DEVICENOTRESET)
-            {
-                if (!g_deviceResetPending)
-                {
-                    auto width = g_presentParameters.BackBufferWidth;
-                    auto height = g_presentParameters.BackBufferHeight;
-                    if (width == 0 || height == 0)
-                    {
-                        RECT rect{};
-                        if (g_overlayHwnd && GetClientRect(g_overlayHwnd, &rect))
-                        {
-                            width = static_cast<UINT>(std::max<LONG>(1, rect.right - rect.left));
-                            height = static_cast<UINT>(std::max<LONG>(1, rect.bottom - rect.top));
-                        }
-                    }
-                    request_device_reset(width, height);
-                }
-            }
-            else if (cooperativeLevel != D3D_OK)
-            {
-                Sleep(10);
-                continue;
-            }
-
-            if (g_deviceResetPending)
-            {
-                auto width = g_pendingBackBufferWidth ? g_pendingBackBufferWidth : g_presentParameters.BackBufferWidth;
-                auto height = g_pendingBackBufferHeight ? g_pendingBackBufferHeight : g_presentParameters.BackBufferHeight;
-                if (!reset_device(width, height))
-                {
-                    Sleep(10);
-                    continue;
-                }
-            }
-
-            ImGui_ImplDX9_NewFrame();
-            ImGui_ImplWin32_NewFrame();
-            ImGui::NewFrame();
-
-            if (g_clearImguiActiveId)
-            {
-                ImGui::ClearActiveID();
-                g_clearImguiActiveId = false;
-            }
-
-            if ((GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0 && !g_draggingPanel)
-            {
-                g_panelMouseWasDown = false;
-                g_rollMouseWasDown = false;
-            }
-
-            g_panelDragRect = {};
-            g_panelWindowRect = {};
-            g_emojiButtonRect = {};
-            g_emojiPickerRect = {};
-
-            draw_floating_emoji_overlays();
-            draw_chat_emoji_overlays();
-            draw_emoji_overlay();
-
-            if (g_showPanel)
-                draw_panel_shell();
-
-            sync_overlay_input_passthrough();
-
-            ImGui::EndFrame();
-            ImGui::Render();
-
-            g_device->Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_ARGB(0, 0, 0, 0), 1.0f, 0);
-            if (SUCCEEDED(g_device->BeginScene()))
-            {
-                ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
-                g_device->EndScene();
-            }
-
-            auto presentResult = g_device->Present(nullptr, nullptr, nullptr, nullptr);
-            if (presentResult == D3DERR_DEVICELOST || presentResult == D3DERR_DEVICENOTRESET)
-                request_device_reset(g_presentParameters.BackBufferWidth, g_presentParameters.BackBufferHeight);
-
-            save_imgui_settings_if_dirty(750);
-            Sleep(1);
+            auto offset = get_window_to_client_offset();
+            io.AddMousePosEvent(
+                static_cast<float>(cursor.x) + offset.x,
+                static_cast<float>(cursor.y) + offset.y);
         }
+        else
+        {
+            io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+        }
+
+        io.AddMouseButtonEvent(ImGuiMouseButton_Left, (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0);
+        io.AddMouseButtonEvent(ImGuiMouseButton_Right, (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0);
+        io.AddMouseButtonEvent(ImGuiMouseButton_Middle, (GetAsyncKeyState(VK_MBUTTON) & 0x8000) != 0);
+
+        ImGui::NewFrame();
+
+        if (g_clearImguiActiveId)
+        {
+            ImGui::ClearActiveID();
+            g_clearImguiActiveId = false;
+        }
+
+        if ((GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0 && !g_draggingPanel)
+        {
+            g_panelMouseWasDown = false;
+            g_rollMouseWasDown = false;
+        }
+
+        g_panelDragRect = {};
+        g_panelWindowRect = {};
+        g_emojiButtonRect = {};
+        g_emojiPickerRect = {};
+
+        draw_floating_emoji_overlays();
+        draw_lower_chat_emoji_overlay();
+        draw_emoji_overlay();
+
+        debug_panel::render();
+
+        if (g_showPanel)
+            draw_panel_shell();
+
+        ImGui::EndFrame();
+        ImGui::Render();
+        ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+        save_imgui_settings_if_dirty(750);
+    }
+
+    HRESULT __stdcall present_hook(IDirect3DDevice9* device, const RECT* src, const RECT* dst, HWND hwnd, const RGNDATA* dirty)
+    {
+        render_integrated_frame(device);
+        return g_originalPresent ? g_originalPresent(device, src, dst, hwnd, dirty) : D3D_OK;
+    }
+
+    HRESULT __stdcall reset_hook(IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* params)
+    {
+        if (g_imguiInitialized)
+        {
+            ImGui_ImplDX9_InvalidateDeviceObjects();
+            release_device_textures_for_reset();
+        }
+
+        auto result = g_originalReset ? g_originalReset(device, params) : D3D_OK;
+
+        if (g_imguiInitialized && SUCCEEDED(result))
+            ImGui_ImplDX9_CreateDeviceObjects();
+
+        return result;
+    }
+
+    void hook_game_device(IDirect3DDevice9* device)
+    {
+        if (!device)
+            return;
+
+        if (g_hookedDevice != device)
+        {
+            shutdown_game_imgui();
+            g_hookedDevice = device;
+            g_originalReset = nullptr;
+            g_originalPresent = nullptr;
+            g_f8Down = false;
+        }
+
+        void* originalReset = nullptr;
+        if (hook_vtable(device, 16, reinterpret_cast<void*>(reset_hook), &originalReset) && originalReset)
+            g_originalReset = reinterpret_cast<ResetFn>(originalReset);
+
+        void* originalPresent = nullptr;
+        if (hook_vtable(device, 17, reinterpret_cast<void*>(present_hook), &originalPresent) && originalPresent)
+            g_originalPresent = reinterpret_cast<PresentFn>(originalPresent);
     }
 
     DWORD WINAPI render_thread(LPVOID)
     {
         while (g_running)
         {
-            if (!g_var->hwnd || !IsWindow(g_var->hwnd))
+            if (!g_var->hwnd || !IsWindow(g_var->hwnd) || !g_var->camera.device)
             {
                 Sleep(250);
                 continue;
@@ -3142,22 +3473,10 @@ namespace imgui_layer
             if (togglePanel)
                 g_showPanel = !g_showPanel;
 
-            if (!should_run_overlay_session())
-            {
-                Sleep(25);
-                continue;
-            }
+            sync_emoji_overlay_scene_state();
 
-            if (begin_session())
-            {
-                run_session();
-                end_session();
-            }
-            else
-            {
-                end_session();
-                Sleep(250);
-            }
+            hook_game_device(g_var->camera.device);
+            Sleep(250);
         }
 
         return 0;
@@ -3180,6 +3499,24 @@ namespace imgui_layer
         util::write_memory(address, &instruction, sizeof(instruction));
     }
 
+    void patch_calls_to(std::uintptr_t target, void* destination)
+    {
+        constexpr auto kTextStart = std::uintptr_t{ 0x401000 };
+        constexpr auto kTextEnd = std::uintptr_t{ 0x745000 };
+
+        for (auto address = kTextStart; address + 5 <= kTextEnd; ++address)
+        {
+            auto bytes = reinterpret_cast<std::uint8_t*>(address);
+            if (bytes[0] != 0xE8)
+                continue;
+
+            auto operand = *reinterpret_cast<std::int32_t*>(bytes + 1);
+            auto callTarget = address + 5 + operand;
+            if (callTarget == target)
+                patch_call(reinterpret_cast<void*>(address), destination);
+        }
+    }
+
     void install_chat_emoji_hook()
     {
         if (g_chatEmojiHookInstalled)
@@ -3190,8 +3527,10 @@ namespace imgui_layer
         util::detour((void*)0x41274D, naked_capture_chat_balloon_text, 6);
         patch_call((void*)0x453DEF, naked_floating_text_create);
         util::detour((void*)0x453DF4, naked_capture_floating_static_text, 9);
-        patch_call((void*)0x41FFF9, naked_floating_static_text_draw);
-        patch_call((void*)0x4202A7, naked_floating_static_text_draw);
+        patch_calls_to(0x57C280, naked_static_text_create);
+        patch_calls_to(0x57CA20, naked_floating_static_text_draw);
+        patch_calls_to(0x573C00, naked_native_text_draw_probe);
+
         g_chatEmojiHookInstalled = true;
     }
 }
@@ -3302,6 +3641,30 @@ void __declspec(naked) naked_capture_floating_static_text()
     }
 }
 
+unsigned u0x57C280 = 0x57C280;
+void __declspec(naked) naked_static_text_create()
+{
+    __asm
+    {
+        push ecx
+        push dword ptr[esp+0x08]
+        call imgui_layer::prepare_static_text_for_emojis
+        add esp, 0x04
+        pop ecx
+
+        push eax
+        call u0x57C280
+
+        push eax
+        push eax
+        call imgui_layer::capture_created_static_text
+        add esp, 0x04
+        pop eax
+
+        ret 0x04
+    }
+}
+
 unsigned u0x57CA20 = 0x57CA20;
 void __declspec(naked) naked_floating_static_text_draw()
 {
@@ -3319,6 +3682,28 @@ void __declspec(naked) naked_floating_static_text_draw()
         popad
 
         jmp u0x57CA20
+    }
+}
+
+unsigned u0x573C00 = 0x573C00;
+void __declspec(naked) naked_native_text_draw_probe()
+{
+    __asm
+    {
+        pushad
+        mov eax, dword ptr[esp+0x20]
+        mov edx, dword ptr[esp+0x28]
+        mov ecx, dword ptr[esp+0x2C]
+        mov ebx, dword ptr[esp+0x38]
+        push ecx
+        push edx
+        push ebx
+        push eax
+        call imgui_layer::record_native_text_draw_probe
+        add esp, 0x10
+        popad
+
+        jmp u0x573C00
     }
 }
 
@@ -3354,4 +3739,9 @@ void hook::imgui_layer()
     auto thread = CreateThread(nullptr, 0, imgui_layer::render_thread, nullptr, 0, nullptr);
     if (thread)
         CloseHandle(thread);
+}
+
+bool handle_imgui_layer_wnd_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT& result)
+{
+    return imgui_layer::handle_wnd_proc(hwnd, msg, wParam, lParam, result);
 }

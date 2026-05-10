@@ -175,7 +175,7 @@ namespace packet
             if (opcode == 0x834 && remaining >= static_cast<int>(sizeof(GameRouletteListOutgoing)))
             {
                 auto* packet = reinterpret_cast<const GameRouletteListOutgoing*>(data);
-                if (packet->itemCount <= 10 && packet->tokenType != 0)
+                if (packet->itemCount <= kRouletteMaxRewards && packet->tokenType != 0)
                     handle_roulette_packet(data, remaining);
             }
             else if (opcode == 0x835 && remaining >= static_cast<int>(sizeof(GameRouletteSpinOutgoing)))

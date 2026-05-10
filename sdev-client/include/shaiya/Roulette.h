@@ -1,9 +1,12 @@
 #pragma once
 #include <array>
+#include <cstddef>
 #include <cstdint>
 
 namespace shaiya
 {
+    inline constexpr std::size_t kRouletteMaxRewards = 20;
+
     namespace roulette_event
     {
         inline bool hasList = false;
@@ -12,10 +15,10 @@ namespace shaiya
         inline uint8_t tokenTypeId = 0;
         inline uint8_t tokenCount = 1;
         inline uint8_t itemCount = 0;
-        inline std::array<uint8_t, 10> rewardType{};
-        inline std::array<uint8_t, 10> rewardTypeId{};
-        inline std::array<uint8_t, 10> rewardCount{};
-        inline std::array<uint16_t, 10> rewardChance{};
+        inline std::array<uint8_t, kRouletteMaxRewards> rewardType{};
+        inline std::array<uint8_t, kRouletteMaxRewards> rewardTypeId{};
+        inline std::array<uint8_t, kRouletteMaxRewards> rewardCount{};
+        inline std::array<uint16_t, kRouletteMaxRewards> rewardChance{};
 
         inline bool spinActive = false;
         inline uint32_t spinStartTick = 0;
