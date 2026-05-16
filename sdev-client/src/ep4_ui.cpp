@@ -712,8 +712,9 @@ void ep4_ui::install_hooks(bool customUiEnabled)
     util::detour((void*)0x41F9C0, naked_0x41F9C0, 9);
     // evolution bug
     util::detour((void*)0x41E2BB, naked_0x41E2BB, 7);
-    // Server-time clock text format for both standard and EP6 interface packs.
+    // Server-time clock text format and coordinate override — universal across all UIs.
     util::detour((void*)0x4E1255, naked_ep4_map_clock, 5);
+    util::detour((void*)0x4DDEDA, naked_ep4_main_map_servertime, 6);
 
     if (!customUiEnabled)
     {
@@ -733,7 +734,6 @@ void ep4_ui::install_hooks(bool customUiEnabled)
         util::detour((void*)0x534F57, naked_ep4_enemy_bar_buff_mouse_over, 5);
         util::detour((void*)0x4DE685, naked_ep4_main_map_button, 6);
         util::detour((void*)0x4DF4AD, naked_ep4_main_map_bg, 7);
-        util::detour((void*)0x4DDEDA, naked_ep4_main_map_servertime, 6);
         util::detour((void*)0x4D9A1C, naked_ep4_arrow_size_map, 6);
         util::detour((void*)0x4E055A, naked_ep4_arrow_size_minimap, 6);
         util::detour((void*)0x4D7A47, naked_ep4_load_arrow_map, 5);
