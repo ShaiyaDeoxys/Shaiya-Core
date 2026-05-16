@@ -14,6 +14,7 @@ namespace shaiya
         static void LoadItemSynthesis();
         static void LoadRewardItemEvent();
         static void LoadRoulette();
+        static void LoadEtainShield();
 
     private:
 

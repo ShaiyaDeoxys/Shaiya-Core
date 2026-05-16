@@ -16,6 +16,7 @@ void Main()
     hook::item_icon();
     hook::main_stats();
     hook::name_color();
+    hook::npc_button();
     hook::packet();
     hook::patch();
     hook::quick_slot();
@@ -25,6 +26,7 @@ void Main()
     hook::target_view();
     hook::title();
     hook::ui_image();
+    hook::unicode();
     hook::vehicle();
     hook::weapon_step();
     hook::window();

@@ -46,6 +46,7 @@ namespace hook
     void item_icon();
     void main_stats();
     void name_color();
+    void npc_button();
     void packet();
     void patch();
     void quick_slot();
@@ -55,6 +56,7 @@ namespace hook
     void target_view();
     void title();
     void ui_image();
+    void unicode();
     void vehicle();
     void weapon_step();
     void window();

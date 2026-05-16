@@ -22,6 +22,14 @@ void user_hook(CUser* user)
     user->itemQualityEx = {};
     user->skillAbility70 = {};
     user->multiplyQuestExpRate = 0;
+
+    // EtainShield
+    user->etainLastPos = {};
+    user->etainLastMoveTick = 0;
+    user->etainViolationCount = 0;
+    user->etainAttackLockTick = 0;
+    user->etainAttackLockPos = {};
+    user->etainAttackLockDirty = false;
 }
 
 unsigned u0x45516B = 0x45516B;
@@ -88,6 +96,7 @@ void Main()
     Configuration::Init();
     Configuration::LoadServerConfig();
     Configuration::LoadBattlefieldMoveData();
+    Configuration::LoadEtainShield();
 
     // CUser::CUser
     util::detour((void*)0x455165, naked_0x455165, 6);
@@ -95,11 +104,12 @@ void Main()
     util::detour((void*)0x455A83, naked_0x455A83, 6);
     // CUser::LeaveWorld
     util::detour((void*)0x455C40, naked_0x455C40, 6);
-    // change 0x62A0 to 0x62F4
-    int size = 0x62F4;
+    // CUser allocation expanded for EtainShield per-user state (see CUser.h)
+    int size = 0x631C;
     // SSyncHeap<CUser>::Alloc
     util::write_memory((void*)0x411F74, &size, 4);
 
+    hook::etain_shield();
     hook::item_effect();
     hook::utilities();
     hook::packet_character();

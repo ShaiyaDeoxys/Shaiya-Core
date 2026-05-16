@@ -37,8 +37,8 @@ namespace title
     constexpr uint8_t kGifTitleReqIg = 3;
     constexpr float kMaxVisualTitleWidth = 180.0f;
     constexpr float kMaxVisualTitleHeight = 48.0f;
-    constexpr const char* kEmojiSahFolder = "emojis";
-    constexpr const char* kGifSahFolder = "gifs";
+    constexpr const char* kTitleSahFolder         = "assets\\titles";
+    constexpr const char* kTitleAnimatedSahFolder = "assets\\titlesanimated";
     constexpr PROPID kGdiplusFrameDelayProperty = 0x5100;
     std::unordered_map<CCharacter*, ItemId> userTitleItemIds;
 
@@ -243,7 +243,7 @@ namespace title
 
     bool is_sah_visual_title_folder(const std::string& lowerPath, VisualTitleKind kind)
     {
-        auto folder = kind == VisualTitleKind::Gif ? kGifSahFolder : kEmojiSahFolder;
+        auto folder = kind == VisualTitleKind::Gif ? kTitleAnimatedSahFolder : kTitleSahFolder;
         return lowerPath == folder || lowerPath == std::string("data\\") + folder;
     }
 

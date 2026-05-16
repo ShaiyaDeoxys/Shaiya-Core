@@ -20,7 +20,7 @@ The Core Discord community grew from the original ShaiyaGG Discord and focuses o
 - Features can be disabled, adjusted, or extended in code, and many runtime options can be changed through configuration.
 - The project does not assume advanced technical knowledge from the final user. It can be used by someone starting from zero, especially with the community guides and support.
 - This repository includes extensive documentation, with more to be added over time. Reading the module READMEs is strongly recommended before making changes.
-- As of `v0.5.1`, Shaiya Core is still in beta and should not be used for a public production server yet. The project changes frequently: bugs are fixed, new systems are added, and regressions can still appear. Until a stable release is available, production servers should consider staying with Shaiya Essentials.
+
 
 ## Repository Layout
 
@@ -56,12 +56,10 @@ Client module:
 Runtime behavior is controlled through external files such as `CONFIG.INI`, server-side `.ini` files, PNG interface assets, and feature-specific configuration files. Keep production secrets and server-specific private data out of commits.
 
 - The updater is skipped by default for testing. Change `SKIPUPDATER` in `CONFIG.INI` to restore updater-required behavior.
-- The login IP can be configured through `CONFIG.INI`. If the option is absent, the client falls back to executable defaults.
 - Server selection and mode selection can be skipped through `CONFIG.INI` if desired.
 - Multi-UI folders are supported. `UI=0` uses the standard interface folder, while `UI=1` uses the EP6.4 interface folder.
 - The current default setup uses the custom EP4.5-style UI.
 - Interface assets and screenshots use `.png` instead of the original Shaiya `.tga` screenshot/interface workflow where supported.
-- GM-only ID view for mobs/NPCs can be controlled with `IDVIEW`.
 - Cosmetic and visual features can be toggled through commands such as `/wings off`, `/pets off`, `/costumes off`, `/titles off`, `/colour off`, and `/effects off`.
 - Performance Mode is tied to `F7`. It quickly toggles wings, pets, effects, and FPS boost for PvP or crowded scenes.
 - FPS boost can also be controlled manually with `/fpsboost on` and `/fpsboost off`.

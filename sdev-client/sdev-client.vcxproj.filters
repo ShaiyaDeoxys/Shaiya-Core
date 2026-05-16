@@ -295,6 +295,9 @@
     <ClCompile Include="src\name_color.cpp">
       <Filter>src</Filter>
     </ClCompile>
+    <ClCompile Include="src\npc_button.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
     <ClCompile Include="src\quick_slot.cpp">
       <Filter>src</Filter>
     </ClCompile>
@@ -311,6 +314,9 @@
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="src\ui_image.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\unicode.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="src\vehicle.cpp">

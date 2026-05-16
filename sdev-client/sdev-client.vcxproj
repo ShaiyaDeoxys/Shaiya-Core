@@ -12,7 +12,12 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\main.h" />
+    <ClInclude Include="src\include\config.h" />
     <ClInclude Include="src\include\debug_panel.h" />
+    <ClInclude Include="src\include\ep4_ui.h" />
+    <ClInclude Include="src\include\stat_color.h" />
+    <ClInclude Include="src\include\interface_redirect.h" />
+    <ClInclude Include="src\include\server_selection.h" />
     <ClInclude Include="..\external\discord-rpc\include\discord_register.h" />
     <ClInclude Include="..\external\discord-rpc\include\discord_rpc.h" />
     <ClInclude Include="..\external\imgui\imgui.h" />
@@ -118,26 +123,33 @@
     <ClCompile Include="src\blacksmith.cpp" />
     <ClCompile Include="src\character.cpp" />
     <ClCompile Include="src\command.cpp" />
+    <ClCompile Include="src\config.cpp" />
     <ClCompile Include="src\custom_game.cpp" />
     <ClCompile Include="src\discord.cpp" />
     <ClCompile Include="src\dllmain.cpp" />
     <ClCompile Include="src\equipment.cpp" />
+    <ClCompile Include="src\ep4_ui.cpp" />
+    <ClCompile Include="src\stat_color.cpp" />
     <ClCompile Include="src\ep6_repo_features.cpp" />
     <ClCompile Include="src\exp_view.cpp" />
     <ClCompile Include="src\imgui_layer.cpp" />
     <ClCompile Include="src\input.cpp" />
+    <ClCompile Include="src\interface_redirect.cpp" />
     <ClCompile Include="src\item_icon.cpp" />
     <ClCompile Include="src\main_stats.cpp" />
     <ClCompile Include="src\name_color.cpp" />
+    <ClCompile Include="src\npc_button.cpp" />
     <ClCompile Include="src\patch.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\packet.cpp" />
     <ClCompile Include="src\quick_slot.cpp" />
     <ClCompile Include="src\raid.cpp" />
     <ClCompile Include="src\resolutions.cpp" />
+    <ClCompile Include="src\server_selection.cpp" />
     <ClCompile Include="src\target_view.cpp" />
     <ClCompile Include="src\title.cpp" />
     <ClCompile Include="src\ui_image.cpp" />
+    <ClCompile Include="src\unicode.cpp" />
     <ClCompile Include="src\debug_panel.cpp" />
     <ClCompile Include="src\stb_image_impl.cpp" />
     <ClCompile Include="src\vehicle.cpp" />
@@ -200,7 +212,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NOMINMAX;WIN32;_DEBUG;SDEVCLIENT_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NOMINMAX;WIN32;_DEBUG;SDEVCLIENT_EXPORTS;_WINDOWS;_USRDLL;IMGUI_IMPL_WIN32_DISABLE_GAMEPAD;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
@@ -224,7 +236,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NOMINMAX;WIN32;NDEBUG;SDEVCLIENT_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NOMINMAX;WIN32;NDEBUG;SDEVCLIENT_EXPORTS;_WINDOWS;_USRDLL;IMGUI_IMPL_WIN32_DISABLE_GAMEPAD;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>

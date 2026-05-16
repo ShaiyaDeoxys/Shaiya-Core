@@ -44,6 +44,7 @@ using std::min;
 #include "include/shaiya/CWorldMgr.h"
 #include "include/shaiya/Static.h"
 #include "resources/resource.h"
+#include "include/config.h"
 #include "include/debug_panel.h"
 using namespace shaiya;
 
@@ -98,9 +99,9 @@ namespace imgui_layer
     constexpr auto kEmojiPickerOffset = ImVec2(32.0f, 0.0f);
     constexpr const char* kEmojiBtnXKey = "EMOJI_X";
     constexpr const char* kEmojiBtnYKey = "EMOJI_Y";
-    constexpr auto kEmojiButtonSize = ImVec2(28.0f, 28.0f);
-    constexpr auto kEmojiPickerSize = ImVec2(260.0f, 270.0f);
-    constexpr auto kEmojiPickerIconSize = ImVec2(26.0f, 26.0f);
+    constexpr auto kEmojiButtonSize = ImVec2(20.0f, 20.0f);
+    constexpr auto kEmojiPickerSize = ImVec2(190.0f, 200.0f);
+    constexpr auto kEmojiPickerIconSize = ImVec2(20.0f, 20.0f);
     constexpr DWORD kEmojiSceneGraceMs = 4000;
     constexpr DWORD kEmojiMapChangeGraceMs = 8000;
 
@@ -121,11 +122,84 @@ namespace imgui_layer
     inline HWND g_overlayHwnd = nullptr;
     inline LPDIRECT3DDEVICE9 g_device = nullptr;
     inline bool g_imguiInitialized = false;
+
+    // Scale factors mapping window-client coordinates to DX9 backbuffer space.
+    // Updated each render frame; consumed by handle_wnd_proc to scale mouse
+    // events before they enter ImGui's input queue.
+    inline float g_mouseScaleX = 1.0f;
+    inline float g_mouseScaleY = 1.0f;
     inline LPDIRECT3DDEVICE9 g_hookedDevice = nullptr;
     using ResetFn = HRESULT(__stdcall*)(IDirect3DDevice9*, D3DPRESENT_PARAMETERS*);
     using PresentFn = HRESULT(__stdcall*)(IDirect3DDevice9*, const RECT*, const RECT*, HWND, const RGNDATA*);
     inline ResetFn g_originalReset = nullptr;
     inline PresentFn g_originalPresent = nullptr;
+
+    // Forward declaration — defined further down alongside the DX9 vtable hooks.
+    bool hook_vtable(void* instance, std::size_t index, void* hook, void** original);
+
+    // DirectInput GetDeviceState hook — suppresses mouse clicks at poll time
+    // when ImGui owns the cursor, preventing click-to-move behind panels.
+    // IDirectInputDevice8::GetDeviceState is vtable slot 9.
+    using GetDeviceStateFn = HRESULT(__stdcall*)(IDirectInputDevice8A*, DWORD, LPVOID);
+    inline GetDeviceStateFn g_originalMouseGetDeviceState = nullptr;
+    inline GetDeviceStateFn g_originalMouse2GetDeviceState = nullptr;
+    inline bool g_mouseDeviceHooked = false;
+
+    HRESULT __stdcall hooked_mouse_get_device_state(IDirectInputDevice8A* device, DWORD cbData, LPVOID lpvData)
+    {
+        auto* original = g_originalMouseGetDeviceState;
+        // Determine which mouse this call is for.
+        if (g_var && g_var->input.mouse2 &&
+            g_var->input.mouse2->device == device &&
+            g_originalMouse2GetDeviceState)
+        {
+            original = g_originalMouse2GetDeviceState;
+        }
+
+        auto hr = original ? original(device, cbData, lpvData) : E_FAIL;
+        if (FAILED(hr) || !lpvData)
+            return hr;
+
+        // If ImGui wants the mouse, zero the left button in the polled state
+        // so the game never sees the click for movement / targeting.
+        if (g_imguiInitialized && ImGui::GetCurrentContext())
+        {
+            auto& io = ImGui::GetIO();
+            if (io.WantCaptureMouse && cbData >= sizeof(DIMOUSESTATE2))
+            {
+                auto* ms = static_cast<DIMOUSESTATE2*>(lpvData);
+                ms->rgbButtons[0] = 0;   // left button
+                ms->rgbButtons[1] = 0;   // right button
+            }
+        }
+
+        return hr;
+    }
+
+    void install_dinput_mouse_hook()
+    {
+        if (g_mouseDeviceHooked || !g_var)
+            return;
+
+        auto hookDevice = [](shaiya::Mouse* m, GetDeviceStateFn* outOriginal) {
+            if (!m || !m->device)
+                return;
+            void* orig = nullptr;
+            if (hook_vtable(m->device, 9, reinterpret_cast<void*>(hooked_mouse_get_device_state), &orig) && orig)
+                *outOriginal = reinterpret_cast<GetDeviceStateFn>(orig);
+        };
+
+        hookDevice(g_var->input.mouse,  &g_originalMouseGetDeviceState);
+        hookDevice(g_var->input.mouse2, &g_originalMouse2GetDeviceState);
+
+        // If both devices share the same vtable (common), mouse2 hook
+        // returns the already-hooked function.  Fall back to mouse1's original.
+        if (g_originalMouse2GetDeviceState == reinterpret_cast<GetDeviceStateFn>(hooked_mouse_get_device_state))
+            g_originalMouse2GetDeviceState = g_originalMouseGetDeviceState;
+
+        g_mouseDeviceHooked = (g_originalMouseGetDeviceState != nullptr);
+    }
+
     inline RECT g_panelDragRect{};
     inline RECT g_panelWindowRect{};
     inline RECT g_emojiButtonRect{};
@@ -147,7 +221,7 @@ namespace imgui_layer
     inline bool g_clearImguiActiveId = false;
     inline bool g_rollMouseWasDown = false;
 
-    // Roulette background PNG loaded from data.sah (emojis/roulette_bg.png)
+    // Roulette background PNG loaded from data.sah (Assets/General/Roulette.png)
     inline LPDIRECT3DTEXTURE9 g_rouletteBgTexture = nullptr;
     inline uint64_t g_rouletteBgDataOffset = 0;
     inline uint64_t g_rouletteBgDataSize = 0;
@@ -572,21 +646,6 @@ namespace imgui_layer
         return size.x >= 320.0f && size.y >= 240.0f;
     }
 
-    ImVec2 get_window_to_client_offset()
-    {
-        if (!g_var->hwnd || !IsWindow(g_var->hwnd))
-            return ImVec2(0.0f, 0.0f);
-
-        RECT windowRect{};
-        POINT clientOrigin{};
-        if (!GetWindowRect(g_var->hwnd, &windowRect) || !ClientToScreen(g_var->hwnd, &clientOrigin))
-            return ImVec2(0.0f, 0.0f);
-
-        return ImVec2(
-            static_cast<float>(clientOrigin.x - windowRect.left),
-            static_cast<float>(clientOrigin.y - windowRect.top));
-    }
-
     bool is_game_window_foreground()
     {
         if (!g_var->hwnd)
@@ -602,15 +661,12 @@ namespace imgui_layer
 
     bool get_overlay_mouse_pos_raw(ImVec2& pos)
     {
-        POINT point{};
-        if (!GetCursorPos(&point) || !g_overlayHwnd)
+        // Use ImGui's already-cached mouse position instead of syscalls.
+        auto& io = ImGui::GetIO();
+        if (io.MousePos.x < 0.0f || io.MousePos.y < 0.0f)
             return false;
 
-        ScreenToClient(g_overlayHwnd, &point);
-        auto offset = get_window_to_client_offset();
-        pos = ImVec2(
-            static_cast<float>(point.x) + offset.x,
-            static_cast<float>(point.y) + offset.y);
+        pos = io.MousePos;
         return true;
     }
 
@@ -631,40 +687,30 @@ namespace imgui_layer
         g_clearImguiActiveId = true;
     }
 
-    bool handle_wnd_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT& result)
+    // Lightweight point-in-RECT test using coordinates already available in the message.
+    static bool point_in_rect_fast(LONG x, LONG y, const RECT& r)
     {
-        if (!g_imguiInitialized || !ImGui::GetCurrentContext())
-            return false;
+        return r.left != r.right
+            && r.top != r.bottom
+            && x >= r.left && x < r.right
+            && y >= r.top && y < r.bottom;
+    }
 
-        ImGui_ImplWin32_WndProcHandler(hwnd, msg, wParam, lParam);
+    // Returns true when the cursor is over any ImGui-owned region (panel, emoji, picker).
+    static bool is_mouse_over_imgui(LONG cx, LONG cy)
+    {
+        return point_in_rect_fast(cx, cy, g_panelWindowRect)
+            || point_in_rect_fast(cx, cy, g_emojiButtonRect)
+            || point_in_rect_fast(cx, cy, g_emojiPickerRect);
+    }
 
-        // Intercept mouse wheel over chat area for emoji scroll sync
-        if (msg == WM_MOUSEWHEEL && g_var)
-        {
-            auto clientH = static_cast<float>(g_var->client.height);
-            auto clientW = static_cast<float>(g_var->client.width);
-            if (clientH > 0 && clientW > 0)
-            {
-                auto chatBottomY = clientH - g_tune.chatBottomOffset;
-                auto chatTopY = chatBottomY - clientH * g_tune.chatTopPct;
-                auto chatRightX = clientW * g_tune.chatRightPct;
+    // Tracks whether ImGui needs mouse input this frame.
+    // When false we skip ImGui_ImplWin32_WndProcHandler entirely for mouse
+    // messages, avoiding TrackMouseEvent syscalls and ImGui input-queue work.
+    inline bool g_imguiWantsMouse = false;
 
-                POINT pt;
-                pt.x = GET_X_LPARAM(lParam);
-                pt.y = GET_Y_LPARAM(lParam);
-                ScreenToClient(hwnd, &pt);
-
-                if (pt.x >= 0 && pt.x < static_cast<int>(chatRightX) &&
-                    pt.y >= static_cast<int>(chatTopY) && pt.y <= static_cast<int>(chatBottomY + 30))
-                {
-                    auto delta = GET_WHEEL_DELTA_WPARAM(wParam);
-                    auto ticks = delta / WHEEL_DELTA;
-                    set_chat_scroll_offset(g_chatScrollOffset + ticks * 2);
-                }
-            }
-        }
-
-        auto& io = ImGui::GetIO();
+    static bool is_mouse_message(UINT msg)
+    {
         switch (msg)
         {
         case WM_MOUSEMOVE:
@@ -682,19 +728,155 @@ namespace imgui_layer
         case WM_XBUTTONDOWN:
         case WM_XBUTTONUP:
         case WM_XBUTTONDBLCLK:
-            if (io.WantCaptureMouse
-                || is_cursor_in_rect(g_panelWindowRect)
-                || is_cursor_in_rect(g_emojiButtonRect)
-                || is_cursor_in_rect(g_emojiPickerRect))
+        case WM_NCMOUSEMOVE:
+        case WM_NCMOUSELEAVE:
+        case WM_MOUSELEAVE:
+        case WM_SETCURSOR:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    // Returns true for mouse messages whose lParam carries client-area (x, y).
+    // WM_MOUSEWHEEL/MOUSEHWHEEL carry *screen* coords, and leave/setcursor
+    // don't carry positional data, so they are excluded.
+    static bool has_client_area_coords(UINT msg)
+    {
+        switch (msg)
+        {
+        case WM_MOUSEMOVE:
+        case WM_LBUTTONDOWN:
+        case WM_LBUTTONUP:
+        case WM_LBUTTONDBLCLK:
+        case WM_RBUTTONDOWN:
+        case WM_RBUTTONUP:
+        case WM_RBUTTONDBLCLK:
+        case WM_MBUTTONDOWN:
+        case WM_MBUTTONUP:
+        case WM_MBUTTONDBLCLK:
+        case WM_XBUTTONDOWN:
+        case WM_XBUTTONUP:
+        case WM_XBUTTONDBLCLK:
+        case WM_NCMOUSEMOVE:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    // Hit-test the mouse position against every visible ImGui window from
+    // the previous frame.  This covers panels, roulette, emoji picker, debug
+    // overlays — anything ImGui drew — without maintaining a manual rect list.
+    // Used as a fallback when io.WantCaptureMouse hasn't caught up yet (the
+    // classic 1-frame delay between mouse movement and NewFrame hover update).
+    static bool is_point_over_any_imgui_window(float x, float y)
+    {
+        auto* ctx = ImGui::GetCurrentContext();
+        if (!ctx)
+            return false;
+
+        for (auto* window : ctx->Windows)
+        {
+            if (!window->WasActive || window->Hidden || window->IsFallbackWindow)
+                continue;
+            if (x >= window->Pos.x && x < window->Pos.x + window->Size.x &&
+                y >= window->Pos.y && y < window->Pos.y + window->Size.y)
+                return true;
+        }
+        return false;
+    }
+
+    bool handle_wnd_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT& result)
+    {
+        if (!g_imguiInitialized || !ImGui::GetCurrentContext())
+            return false;
+
+        if (is_mouse_message(msg))
+        {
+            // WM_SETCURSOR fires before every WM_MOUSEMOVE. Skip it entirely
+            // — NoMouseCursorChange already prevents ImGui from calling
+            // LoadCursor+SetCursor, and forwarding it added no value.
+            if (msg == WM_SETCURSOR)
+                return false;
+
+            // Scale mouse coordinates from window-client space to DX9
+            // backbuffer space before ImGui sees them.  This keeps the input
+            // queue consistent with io.DisplaySize (set to backbuffer dims in
+            // render_integrated_frame).
+            LPARAM scaledLParam = lParam;
+            if (has_client_area_coords(msg) &&
+                (g_mouseScaleX != 1.0f || g_mouseScaleY != 1.0f))
+            {
+                int x = static_cast<int>(GET_X_LPARAM(lParam) * g_mouseScaleX);
+                int y = static_cast<int>(GET_Y_LPARAM(lParam) * g_mouseScaleY);
+                scaledLParam = MAKELPARAM(x, y);
+            }
+
+            // Always forward mouse messages to ImGui so it can track hover
+            // state across all windows (panels, roulette, emoji picker, etc.).
+            // This is cheap now that NoMouseCursorChange is set.
+            ImGui_ImplWin32_WndProcHandler(hwnd, msg, wParam, scaledLParam);
+
+            // Let ImGui decide if it owns the mouse this frame.
+            auto& io = ImGui::GetIO();
+            if (io.WantCaptureMouse)
             {
                 result = TRUE;
                 return true;
             }
-            break;
-        default:
-            break;
+
+            // Fallback for the 1-frame hover delay: io.WantCaptureMouse is
+            // set during NewFrame, so a click that arrives between frames can
+            // slip through before the hover state catches up.  For button-down
+            // events, hit-test directly against the previous frame's window
+            // rects to prevent the click from reaching the game and
+            // accidentally moving the character.
+            if (msg == WM_LBUTTONDOWN || msg == WM_RBUTTONDOWN ||
+                msg == WM_MBUTTONDOWN || msg == WM_LBUTTONDBLCLK)
+            {
+                float mx = static_cast<float>(GET_X_LPARAM(scaledLParam));
+                float my = static_cast<float>(GET_Y_LPARAM(scaledLParam));
+                if (is_point_over_any_imgui_window(mx, my))
+                {
+                    result = TRUE;
+                    return true;
+                }
+            }
+
+            // Intercept mouse wheel over chat area for emoji scroll sync.
+            if (msg == WM_MOUSEWHEEL && g_var)
+            {
+                LONG cx, cy;
+                POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+                ScreenToClient(hwnd, &pt);
+                cx = pt.x;
+                cy = pt.y;
+
+                auto clientH = static_cast<float>(g_var->client.height);
+                auto clientW = static_cast<float>(g_var->client.width);
+                if (clientH > 0 && clientW > 0)
+                {
+                    auto chatBottomY = clientH - g_tune.chatBottomOffset;
+                    auto chatTopY = chatBottomY - clientH * g_tune.chatTopPct;
+                    auto chatRightX = clientW * g_tune.chatRightPct;
+
+                    if (cx >= 0 && cx < static_cast<LONG>(chatRightX) &&
+                        cy >= static_cast<LONG>(chatTopY) && cy <= static_cast<LONG>(chatBottomY + 30))
+                    {
+                        auto delta = GET_WHEEL_DELTA_WPARAM(wParam);
+                        auto ticks = delta / WHEEL_DELTA;
+                        set_chat_scroll_offset(g_chatScrollOffset + ticks * 2);
+                    }
+                }
+            }
+
+            // Mouse is not over any ImGui element — don't consume the message.
+            return false;
         }
 
+        // Non-mouse messages (keyboard, etc.) — always forward to ImGui.
+        ImGui_ImplWin32_WndProcHandler(hwnd, msg, wParam, lParam);
         return false;
     }
 
@@ -1449,14 +1631,14 @@ namespace imgui_layer
         if (rect.left == rect.right || rect.top == rect.bottom)
             return false;
 
-        POINT point{};
-        if (!GetCursorPos(&point) || !g_overlayHwnd)
+        // Use ImGui's already-cached mouse position instead of syscalls.
+        auto& io = ImGui::GetIO();
+        if (io.MousePos.x < 0.0f || io.MousePos.y < 0.0f)
             return false;
 
-        ScreenToClient(g_overlayHwnd, &point);
-        auto offset = get_window_to_client_offset();
-        point.x += static_cast<LONG>(offset.x);
-        point.y += static_cast<LONG>(offset.y);
+        POINT point;
+        point.x = static_cast<LONG>(io.MousePos.x);
+        point.y = static_cast<LONG>(io.MousePos.y);
         return PtInRect(&rect, point) == TRUE;
     }
 
@@ -1481,8 +1663,9 @@ namespace imgui_layer
             g_showEmojiPicker = !g_showEmojiPicker;
     }
 
-    constexpr const char* kEmojiSahFolder = "emojis";
-    constexpr const char* kGifSahFolder = "gifs";
+    constexpr const char* kEmojiSahFolder   = "assets\\emojis";
+    constexpr const char* kGifSahFolder     = "assets\\gifs";
+    constexpr const char* kGeneralSahFolder = "assets\\general";
     constexpr PROPID kGdiplusFrameDelayProperty = 0x5100;
 
     std::string get_game_relative_path(const char* relativePath)
@@ -1634,6 +1817,12 @@ namespace imgui_layer
         return lowerPath == folder || lowerPath == std::string("data\\") + folder;
     }
 
+    bool is_sah_general_folder(const std::string& lowerPath)
+    {
+        return lowerPath == kGeneralSahFolder
+            || lowerPath == std::string("data\\") + kGeneralSahFolder;
+    }
+
     bool try_add_visual_token_from_sah_file(VisualTokenKind kind, const std::string& fileName, uint64_t fileOffset, uint64_t fileSize)
     {
         auto index = 0;
@@ -1677,21 +1866,23 @@ namespace imgui_layer
 
             if (is_sah_visual_token_folder(lowerPath, VisualTokenKind::Emoji))
             {
-                // Check for roulette background PNG in the emojis folder
+                try_add_visual_token_from_sah_file(VisualTokenKind::Emoji, fileName, fileOffset, fileSize);
+            }
+            else if (is_sah_visual_token_folder(lowerPath, VisualTokenKind::Gif))
+            {
+                try_add_visual_token_from_sah_file(VisualTokenKind::Gif, fileName, fileOffset, fileSize);
+            }
+            else if (is_sah_general_folder(lowerPath))
+            {
+                // Roulette background PNG lives in Assets/General.
                 auto lowerFileName = to_lower_ascii(fileName);
-                if (lowerFileName == "roulette_bg.png" && !g_rouletteBgFound)
+                if (lowerFileName == "roulette.png" && !g_rouletteBgFound)
                 {
                     g_rouletteBgFound = true;
                     g_rouletteBgDataOffset = fileOffset;
                     g_rouletteBgDataSize = fileSize;
                 }
-                else
-                {
-                    try_add_visual_token_from_sah_file(VisualTokenKind::Emoji, fileName, fileOffset, fileSize);
-                }
             }
-            else if (is_sah_visual_token_folder(lowerPath, VisualTokenKind::Gif))
-                try_add_visual_token_from_sah_file(VisualTokenKind::Gif, fileName, fileOffset, fileSize);
         }
 
         uint32_t directoryCount = 0;
@@ -2854,15 +3045,16 @@ namespace imgui_layer
         auto center = ImVec2((min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f);
         auto radius = std::min(max.x - min.x, max.y - min.y) * 0.36f;
         drawList->AddCircleFilled(center, radius, color, 20);
-        drawList->AddCircleFilled(ImVec2(center.x - radius * 0.35f, center.y - radius * 0.18f), 1.4f, IM_COL32(35, 31, 26, 230), 8);
-        drawList->AddCircleFilled(ImVec2(center.x + radius * 0.35f, center.y - radius * 0.18f), 1.4f, IM_COL32(35, 31, 26, 230), 8);
+        auto eyeRadius = std::max(1.0f, radius * 0.14f);
+        drawList->AddCircleFilled(ImVec2(center.x - radius * 0.35f, center.y - radius * 0.18f), eyeRadius, IM_COL32(35, 31, 26, 230), 8);
+        drawList->AddCircleFilled(ImVec2(center.x + radius * 0.35f, center.y - radius * 0.18f), eyeRadius, IM_COL32(35, 31, 26, 230), 8);
         drawList->AddBezierCubic(
             ImVec2(center.x - radius * 0.42f, center.y + radius * 0.18f),
             ImVec2(center.x - radius * 0.22f, center.y + radius * 0.46f),
             ImVec2(center.x + radius * 0.22f, center.y + radius * 0.46f),
             ImVec2(center.x + radius * 0.42f, center.y + radius * 0.18f),
             IM_COL32(35, 31, 26, 230),
-            1.7f);
+            std::max(1.0f, radius * 0.17f));
     }
 
     bool emoji_image_button(const char* id, EmojiEntry& emoji, const ImVec2& size)
@@ -3312,6 +3504,7 @@ namespace imgui_layer
         io.IniFilename = nullptr;
         io.LogFilename = nullptr;
         io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableKeyboard;
+        io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
 
         ImGui_ImplWin32_Init(g_var->hwnd);
         ImGui_ImplDX9_Init(device);
@@ -3319,6 +3512,10 @@ namespace imgui_layer
         g_panelWindowRect = {};
         g_emojiButtonRect = {};
         g_emojiPickerRect = {};
+
+        // Hook DirectInput mouse polling so clicks are suppressed at the
+        // earliest point in the game loop when ImGui owns the cursor.
+        install_dinput_mouse_hook();
     }
 
     void shutdown_game_imgui()
@@ -3357,23 +3554,59 @@ namespace imgui_layer
         ImGui_ImplDX9_NewFrame();
         ImGui_ImplWin32_NewFrame();
 
-        auto& io = ImGui::GetIO();
-        POINT cursor{};
-        if (GetCursorPos(&cursor) && ScreenToClient(g_var->hwnd, &cursor))
+        // --- Backbuffer / window coordinate synchronization ---
+        // ImGui_ImplWin32_NewFrame sets io.DisplaySize from GetClientRect,
+        // which is the window's client-area size in pixels.  When the game
+        // runs at an internal resolution that differs from the window size
+        // (common at non-native resolutions), DX9 renders at backbuffer
+        // dimensions while ImGui positions and hit-tests at window dimensions
+        // — panels appear visually offset from their clickable area.
+        //
+        // Fix: (a) override DisplaySize to the backbuffer before NewFrame so
+        //      ImGui's frame setup, rendering, and hit-testing all use the
+        //      same coordinate space;  (b) update the per-frame scale factors
+        //      consumed by handle_wnd_proc, which scales mouse messages
+        //      entering ImGui's input queue;  (c) re-inject the current
+        //      cursor position in backbuffer space so that any position event
+        //      added by the Win32 backend's UpdateMouseData is superseded.
         {
-            auto offset = get_window_to_client_offset();
-            io.AddMousePosEvent(
-                static_cast<float>(cursor.x) + offset.x,
-                static_cast<float>(cursor.y) + offset.y);
-        }
-        else
-        {
-            io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
-        }
+            auto& io = ImGui::GetIO();
+            float winW = io.DisplaySize.x;
+            float winH = io.DisplaySize.y;
+            float bbW  = static_cast<float>(g_var->client.width);
+            float bbH  = static_cast<float>(g_var->client.height);
 
-        io.AddMouseButtonEvent(ImGuiMouseButton_Left, (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0);
-        io.AddMouseButtonEvent(ImGuiMouseButton_Right, (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0);
-        io.AddMouseButtonEvent(ImGuiMouseButton_Middle, (GetAsyncKeyState(VK_MBUTTON) & 0x8000) != 0);
+            if (bbW > 0.0f && bbH > 0.0f)
+            {
+                io.DisplaySize = ImVec2(bbW, bbH);
+
+                if (winW > 0.0f && winH > 0.0f &&
+                    (bbW != winW || bbH != winH))
+                {
+                    g_mouseScaleX = bbW / winW;
+                    g_mouseScaleY = bbH / winH;
+
+                    // Re-inject the cursor position in backbuffer space.
+                    // The Win32 backend may have queued a position event
+                    // from GetCursorPos+ScreenToClient (window space);
+                    // adding a corrected event here ensures the last
+                    // queued position — the one NewFrame will finalize —
+                    // is in backbuffer space, matching DisplaySize.
+                    POINT pt;
+                    if (::GetCursorPos(&pt) &&
+                        ::ScreenToClient(g_var->hwnd, &pt))
+                    {
+                        io.AddMousePosEvent(pt.x * g_mouseScaleX,
+                                            pt.y * g_mouseScaleY);
+                    }
+                }
+                else
+                {
+                    g_mouseScaleX = 1.0f;
+                    g_mouseScaleY = 1.0f;
+                }
+            }
+        }
 
         ImGui::NewFrame();
 
@@ -3382,6 +3615,11 @@ namespace imgui_layer
             ImGui::ClearActiveID();
             g_clearImguiActiveId = false;
         }
+
+        // DirectInput click suppression is handled by the GetDeviceState
+        // vtable hook (install_dinput_mouse_hook), which intercepts mouse
+        // button state at poll time — before the game loop processes input.
+        // No additional clearing is needed here in the present hook.
 
         if ((GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0 && !g_draggingPanel)
         {
@@ -3405,7 +3643,16 @@ namespace imgui_layer
 
         ImGui::EndFrame();
         ImGui::Render();
-        ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+
+        // Only call into the DX9 backend when there are actual draw commands.
+        // CreateStateBlock(D3DSBT_ALL) + Capture + Apply runs every
+        // RenderDrawData call and is the single heaviest per-frame cost in
+        // the overlay. Skipping it when the draw lists are empty avoids the
+        // full DX9 state save/restore cycle on frames with nothing to draw.
+        auto* drawData = ImGui::GetDrawData();
+        if (drawData && drawData->CmdListsCount > 0)
+            ImGui_ImplDX9_RenderDrawData(drawData);
+
         save_imgui_settings_if_dirty(750);
     }
 
@@ -3731,6 +3978,9 @@ void tick_client_welcome_sysmsg()
 
 void hook::imgui_layer()
 {
+    if (!config::load_imgui_overlay())
+        return;
+
     imgui_layer::install_chat_emoji_hook();
 
     if (imgui_layer::g_running.exchange(true))

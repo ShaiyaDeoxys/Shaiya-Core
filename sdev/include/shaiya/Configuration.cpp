@@ -22,7 +22,11 @@
 #include "Roulette.h"
 #include "SBinaryReader.h"
 #include "Synergy.h"
+#include <include/etain_shield_config.h>
 using namespace shaiya;
+
+// Global EtainShield configuration (loaded from Data/EtainShield.ini)
+EtainShieldConfig g_etainConfig{};
 
 namespace
 {
@@ -585,5 +589,74 @@ void Configuration::LoadRoulette()
     {
         g_rouletteConfig = {};
         g_roulettePending.clear();
+    }
+}
+
+// ===========================================================================
+//  EtainShield.ini — anticheat configuration
+// ===========================================================================
+
+void Configuration::LoadEtainShield()
+{
+    // g_etainConfig has sensible defaults via member initializers.
+    // If the INI is missing or a key is absent, the default applies.
+
+    try
+    {
+        std::filesystem::path path(m_root);
+        ext::filesystem::combine(path, "Data", "EtainShield.ini");
+
+        if (!std::filesystem::exists(path))
+            return;
+
+        // [General]
+        g_etainConfig.enabled =
+            util::ini::get_value(L"General", L"Enabled", 1, path) != 0;
+
+        // [AntiSpeedHack]
+        g_etainConfig.speedHackEnabled =
+            util::ini::get_value(L"AntiSpeedHack", L"Enabled", 1, path) != 0;
+
+        auto c1 = util::ini::get_value(L"AntiSpeedHack", L"Const1", L"10.0", path);
+        g_etainConfig.speedConst1 = std::stod(c1);
+
+        auto c2 = util::ini::get_value(L"AntiSpeedHack", L"Const2", L"0.13", path);
+        g_etainConfig.speedConst2 = std::stof(c2);
+
+        auto c3 = util::ini::get_value(L"AntiSpeedHack", L"Const3", L"3.0", path);
+        g_etainConfig.speedConst3 = std::stof(c3);
+
+        auto c4 = util::ini::get_value(L"AntiSpeedHack", L"Const4", L"2.0", path);
+        g_etainConfig.speedConst4 = std::stod(c4);
+
+        auto tol = util::ini::get_value(L"AntiSpeedHack", L"Tolerance", L"1.25", path);
+        g_etainConfig.speedTolerance = std::stof(tol);
+
+        g_etainConfig.speedViolationThreshold = static_cast<uint8_t>(
+            util::ini::get_value(L"AntiSpeedHack", L"ViolationLimit", 3, path));
+
+        g_etainConfig.speedMinTickDelta = static_cast<uint32_t>(
+            util::ini::get_value(L"AntiSpeedHack", L"MinTickDelta", 50, path));
+
+        auto fd = util::ini::get_value(L"AntiSpeedHack", L"FreeDistance", L"5.0", path);
+        g_etainConfig.speedFreeDistance = std::stof(fd);
+
+        auto tt = util::ini::get_value(L"AntiSpeedHack", L"TeleportThreshold", L"300.0", path);
+        g_etainConfig.speedTeleportThreshold = std::stof(tt);
+
+        // [AntiRangeHack]
+        g_etainConfig.rangeHackEnabled =
+            util::ini::get_value(L"AntiRangeHack", L"Enabled", 1, path) != 0;
+
+        g_etainConfig.rangeMargin = static_cast<int>(
+            util::ini::get_value(L"AntiRangeHack", L"Margin", 4, path));
+
+        // [AntiMoveAttack]
+        g_etainConfig.moveAttackEnabled =
+            util::ini::get_value(L"AntiMoveAttack", L"Enabled", 1, path) != 0;
+    }
+    catch (...)
+    {
+        // Parse error — defaults from member initializers remain.
     }
 }

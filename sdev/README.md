@@ -20,6 +20,7 @@ The server resolves paths from the game service executable directory, then the `
 - `Data/ChaoticSquare.ini`: item synthesis and chaotic square recipes.
 - `Data/RewardItem.ini`: timed reward item event list.
 - `Data/Roulette.ini`: roulette token and reward table.
+- `Data/EtainShield.ini`: anticheat module configuration (per-feature toggles and tuning constants).
 
 ## Installed Hooks
 
@@ -29,6 +30,8 @@ All active server features are installed from `src/main.cpp`.
 Configuration::Init();
 Configuration::LoadServerConfig();
 Configuration::LoadBattlefieldMoveData();
+Configuration::LoadEtainShield();
+hook::etain_shield();
 hook::item_effect();
 hook::utilities();
 hook::packet_character();
@@ -58,7 +61,7 @@ Configuration::LoadRoulette();
 
 ### Bootstrap And User State
 
-- Expands `CUser` allocation from `0x62A0` to `0x62F4` for custom runtime state.
+- Expands `CUser` allocation from `0x62A0` to `0x631C` for custom runtime state and EtainShield per-user fields.
 - Initializes custom exchange, skill ability, item quality, and synergy fields on user creation and reset.
 - Clears item set synergy state when a user leaves the world.
 - Keeps custom file loading independent from the process current directory.
@@ -81,6 +84,14 @@ Configuration::LoadRoulette();
 - Guards outgoing packet sends through helper checks.
 - Rejects malformed equipment and inventory actions before stock code can read invalid memory.
 - Keeps unsupported mailbox handling disabled; the mailbox hook is not installed.
+
+### EtainShield (Anticheat)
+
+Server-side anticheat module configured via `Data/EtainShield.ini`. Each protection has an independent enable/disable toggle and tunable parameters. A global master switch disables all protections at once.
+
+- **AntiSpeedHack**: patches four timing constants in the ps_game.exe data section to tighten the native speed-validation window, then validates every `0x501` movement packet against the player's `abilityMoveSpeed` stat. Violations accumulate; exceeding the threshold teleports the player back to their last valid position.
+- **AntiRangeHack**: computes the real 2D euclidean distance from server-side positions for every attack. Basic attack packets (`0x502`/`0x503`) are intercepted in the opcode dispatch; skill attacks are caught by detours on the native PVE (`0x458000`) and PVP (`0x457F50`) range-check functions. Out-of-range attacks are rejected immediately.
+- **AntiMoveAttack**: blocks movement packets while the server considers the player to be in an attack (`CUser::attackType != None`). A 5-second safety timeout prevents permanent freezes. A single position correction is sent only if a hacked client actually attempted movement during the lock window; legitimate clients are never affected.
 
 ### Cross-Faction And Social
 
@@ -120,7 +131,7 @@ Configuration::LoadRoulette();
 
 ### EP6.4 Equipment And Shape
 
-- Enables EP6.4 equipment slots: vehicle, pet, costume, and wings.
+- Enables EP6.4 equipment slots: pet, costume, and wings.
 - Rebuilds equipment validation using item type and slot rules.
 - Supports one-hand weapon plus shield/off-hand combinations.
 - Sends inspect packet `0x307` with up to 17 visible equipment entries.
@@ -241,6 +252,32 @@ Configuration::LoadRoulette();
 
 ## Configuration Examples
 
+### EtainShield.ini
+
+```ini
+[General]
+Enabled=1
+
+[AntiSpeedHack]
+Enabled=1
+Const1=10.0
+Const2=0.13
+Const3=3.0
+Const4=2.0
+Tolerance=1.25
+ViolationLimit=3
+MinTickDelta=50
+FreeDistance=5.0
+TeleportThreshold=300.0
+
+[AntiRangeHack]
+Enabled=1
+Margin=4
+
+[AntiMoveAttack]
+Enabled=1
+```
+
 ### ServerConfig.ini
 
 ```ini
@@ -309,3 +346,4 @@ NewItemCount=1
 - `sdev-client` provides the five-page raid UI for the server raid-150 patch.
 - `sdev-client` accepts recreation rune effects `220..240` in the blacksmith window; `sdev` applies the server mutation.
 - Emoji and GIF chat tokens are client-rendered only. The server receives and forwards normal chat text.
+- EtainShield operates entirely server-side and requires no client modifications.

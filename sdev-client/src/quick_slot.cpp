@@ -19,7 +19,10 @@ namespace quick_slot
         if (buffer[0] == '\0')
             GetPrivateProfileStringA("CONFIG", "UI", "0", buffer, static_cast<DWORD>(sizeof(buffer)), g_var->iniFileName.data());
 
-        return std::atoi(buffer) == 1 ? "data/interfep6" : "data/interface";
+        auto level = std::atoi(buffer);
+        if (level == 2) return "data/intf_epi8";
+        if (level == 1) return "data/intf_epi6";
+        return "data/interface";
     }
 
     void get_configuration(Unknown* unknown)

@@ -31,7 +31,7 @@ namespace
     constexpr int kButtonY = 78;
     constexpr int kCustomUiButtonYOffset = -22;
     constexpr int kButtonWidth = 165;
-    constexpr int kButtonHeight = 30;
+    constexpr int kButtonHeight = 47;
 
     std::vector<BattlefieldMoveInfo> g_battlefieldMoveData;
     bool g_battlefieldMoveDataLoaded = false;
@@ -248,10 +248,14 @@ namespace
         init_battlefield_button();
 
         g_anchor = window->pos;
-        CButton::Draw(&g_battlefieldButton, g_anchor.x, g_anchor.y + get_button_y_offset());
 
         auto mouseDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
         auto cursorOverButton = is_cursor_over_button();
+
+        // Update hover state so CButton::Draw renders the hover frame.
+        g_battlefieldButton.mouseEnter = cursorOverButton;
+
+        CButton::Draw(&g_battlefieldButton, g_anchor.x, g_anchor.y + get_button_y_offset());
 
         if (mouseDown && !g_mouseWasDown)
             g_buttonPressStartedInside = cursorOverButton;

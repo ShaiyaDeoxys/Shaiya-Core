@@ -17,12 +17,13 @@ namespace window
 {
     inline HWND g_hookedGameHwnd = nullptr;
     inline WNDPROC g_originalGameWndProc = nullptr;
+    inline bool g_hwndIsUnicode = false;
     constexpr wchar_t kDefaultGameWindowTitle[] = L"Shaiya";
     inline DWORD g_nextTitleRefreshTick = 0;
 
     void refresh_game_window_title(HWND hwnd, bool force)
     {
-        if (!hwnd || !IsWindowUnicode(hwnd))
+        if (!hwnd || !g_hwndIsUnicode)
             return;
 
         auto now = GetTickCount();
@@ -123,9 +124,10 @@ namespace window
             return imguiResult;
 
         // The UTF-8 window upgrade can leave legacy title writes truncated to
-        // "S". Refresh from the actual subclassed GAME HWND so later client
-        // rewrites cannot leave the visible caption broken.
-        if (msg != WM_SETTEXT)
+        // "S". Only refresh on low-frequency messages where the title may have
+        // been corrupted — not on every mouse/paint/input message.
+        if (msg == WM_ACTIVATE || msg == WM_ACTIVATEAPP || msg == WM_SHOWWINDOW
+            || msg == WM_DISPLAYCHANGE || msg == WM_SIZE)
             refresh_game_window_title(hwnd, false);
 
         // Run before the original client WndProc so Unicode chat input never
@@ -160,7 +162,7 @@ namespace window
             return 0;
         }
 
-        if (IsWindowUnicode(hwnd))
+        if (g_hwndIsUnicode)
             return CallWindowProcW(g_originalGameWndProc, hwnd, msg, wParam, lParam);
 
         return CallWindowProcA(g_originalGameWndProc, hwnd, msg, wParam, lParam);
@@ -182,6 +184,7 @@ namespace window
 
         g_originalGameWndProc = previousProc;
         g_hookedGameHwnd = hwnd;
+        g_hwndIsUnicode = IsWindowUnicode(hwnd) != FALSE;
 
         refresh_game_window_title(hwnd, true);
     }

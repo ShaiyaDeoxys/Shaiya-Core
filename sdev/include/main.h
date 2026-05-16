@@ -15,6 +15,7 @@ namespace packet_gem
 
 namespace hook
 {
+    void etain_shield();
     void item_effect();
     void utilities();
     void packet_character();

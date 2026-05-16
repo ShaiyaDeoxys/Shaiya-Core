@@ -38,6 +38,7 @@
     <ClCompile Include="include\shaiya\SVector.cpp" />
     <ClCompile Include="include\shaiya\Synergy.cpp" />
     <ClCompile Include="include\shaiya\UserHelper.cpp" />
+    <ClCompile Include="src\etain_shield.cpp" />
     <ClCompile Include="src\item_effect.cpp" />
     <ClCompile Include="src\packet_mailbox.cpp" />
     <ClCompile Include="src\packet_pc.cpp" />
@@ -64,6 +65,7 @@
   <ItemGroup>
     <ClInclude Include="include\extensions\filesystem.hpp" />
     <ClInclude Include="include\extensions\ranges.hpp" />
+    <ClInclude Include="include\etain_shield.h" />
     <ClInclude Include="include\main.h" />
     <ClInclude Include="include\shaiya\AdminInfo.h" />
     <ClInclude Include="include\shaiya\AesKey.h" />

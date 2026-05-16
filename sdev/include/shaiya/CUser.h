@@ -457,6 +457,19 @@ namespace shaiya
         SkillAbility70 skillAbility70;           //0x62E8
         uint32_t multiplyQuestExpRate;           //0x62F0
 
+        // EtainShield — speedhack detection per-user state
+        SVector etainLastPos;                    //0x62F4  last validated position
+        tick32_t etainLastMoveTick;              //0x6300  tick of last validated move
+        uint8_t etainViolationCount;             //0x6304  consecutive violations
+        PAD(3);                                  //0x6305  alignment padding
+
+        // EtainShield — attack movement lock per-user state
+        tick32_t etainAttackLockTick;            //0x6308  when the lock was set (0 = no lock)
+        SVector etainAttackLockPos;              //0x630C  position snapshot at lock time
+        bool etainAttackLockDirty;               //0x6318  true if movement was attempted during lock
+        PAD(3);                                  //0x6319  alignment padding
+        // 0x631C
+
         static void AddExpFromUser(CUser* user/*esi*/, unsigned lastTargetId, int exp, bool isQuest);
         static void CancelActionExc(CUser* user/*edi*/);
         static void ChkAddMoneyGet(CUser* user/*ecx*/, unsigned money/*edx*/);
@@ -520,5 +533,5 @@ namespace shaiya
     #pragma pack(pop)
 
     //static_assert(sizeof(CUser) == 0x62A0);
-    static_assert(sizeof(CUser) == 0x62F4);
+    static_assert(sizeof(CUser) == 0x631C);
 }
