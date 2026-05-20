@@ -14,6 +14,7 @@
     <ClInclude Include="include\main.h" />
     <ClInclude Include="src\include\config.h" />
     <ClInclude Include="src\include\debug_panel.h" />
+    <ClInclude Include="src\include\imgui_layer_internal.h" />
     <ClInclude Include="src\include\ep4_ui.h" />
     <ClInclude Include="src\include\stat_color.h" />
     <ClInclude Include="src\include\interface_redirect.h" />
@@ -133,6 +134,13 @@
     <ClCompile Include="src\ep6_repo_features.cpp" />
     <ClCompile Include="src\exp_view.cpp" />
     <ClCompile Include="src\imgui_layer.cpp" />
+    <ClCompile Include="src\imgui_layer_asm.cpp" />
+    <ClCompile Include="src\imgui_layer_chatoptions.cpp" />
+    <ClCompile Include="src\imgui_layer_emoji.cpp" />
+    <ClCompile Include="src\imgui_layer_items.cpp" />
+    <ClCompile Include="src\imgui_layer_roulette.cpp" />
+    <ClCompile Include="src\imgui_layer_reward.cpp" />
+    <ClCompile Include="src\imgui_layer_settings.cpp" />
     <ClCompile Include="src\input.cpp" />
     <ClCompile Include="src\interface_redirect.cpp" />
     <ClCompile Include="src\item_icon.cpp" />

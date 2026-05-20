@@ -260,23 +260,6 @@ void load_advanced_config()
     g_showNameColors = str.compare(0, 4, "TRUE") == 0;
 }
 
-bool is_performance_mode_enabled()
-{
-    return g_showEffects == 0
-        && g_showPets == 0
-        && g_showWings == 0
-        && g_showMobEffects == 0
-        && g_fpsBoost == 1;
-}
-
-void set_performance_mode(bool enabled)
-{
-    apply_effects_setting(!enabled);
-    apply_pets_setting(!enabled);
-    apply_wings_setting(!enabled);
-    apply_fpsboost_setting(enabled);
-}
-
 int command_handler(char* text)
 {
     std::string input(text);

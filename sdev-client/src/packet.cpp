@@ -2,16 +2,24 @@
 #include <algorithm>
 #include <cstring>
 #include <shaiya/include/network/game/outgoing/0800.h>
+#include <shaiya/include/network/game/outgoing/1F00.h>
 #include "include/main.h"
 #include "include/shaiya/CCharacter.h"
+#include "include/shaiya/RewardItemEvent.h"
 #include "include/shaiya/Roulette.h"
 #include "include/shaiya/Static.h"
 using namespace shaiya;
 
 namespace packet
 {
-    using RecvFn = int(__stdcall*)(uintptr_t socket, char* buffer, int length, int flags);
-    inline RecvFn g_originalRecv = nullptr;
+    // Forward declarations
+    void scan_roulette_packets(const char* buffer, int length);
+    void scan_reward_item_packets(const char* buffer, int length);
+    void handler_0x1F01(GameRewardItemGetResultOutgoing* incoming);
+    void handler_0x1F03(GameRewardItemListOutgoing* incoming);
+    void handler_0x1F04(GameRewardItemGetOutgoing* incoming);
+    void handler_0x1F05(GameRewardItemListIndexOutgoing* incoming);
+    void handler_0x1F06(GameRewardItemEventEndedOutgoing* incoming);
 
     void patch_quantity_limit()
     {
@@ -136,6 +144,54 @@ namespace packet
         }
     }
 
+    template <typename Packet>
+    void dispatch_reward_item_payload(uint16_t opcode, const void* packet, void(*handler)(Packet*))
+    {
+        if (!packet)
+            return;
+
+        if (*reinterpret_cast<const uint16_t*>(packet) == opcode)
+        {
+            handler(const_cast<Packet*>(reinterpret_cast<const Packet*>(packet)));
+            return;
+        }
+
+        Packet normalized{};
+        normalized.opcode = opcode;
+        constexpr auto payloadSize = sizeof(Packet) - sizeof(uint16_t);
+        std::memcpy(reinterpret_cast<uint8_t*>(&normalized) + sizeof(uint16_t), packet, payloadSize);
+        handler(&normalized);
+    }
+
+    void dispatch_reward_item_list_payload(uint16_t opcode, const void* packet)
+    {
+        if (!packet)
+            return;
+
+        if (*reinterpret_cast<const uint16_t*>(packet) == opcode)
+        {
+            handler_0x1F03(const_cast<GameRewardItemListOutgoing*>(
+                reinterpret_cast<const GameRewardItemListOutgoing*>(packet)));
+            return;
+        }
+
+        auto* payload = reinterpret_cast<const uint8_t*>(packet);
+        uint32_t count = *reinterpret_cast<const uint32_t*>(payload);
+        if (count > reward_item_event::items.size())
+            count = static_cast<uint32_t>(reward_item_event::items.size());
+
+        GameRewardItemListOutgoing normalized{};
+        normalized.opcode = opcode;
+        normalized.itemCount = count;
+        if (count > 0)
+        {
+            std::memcpy(&normalized.itemList[0], payload + sizeof(uint32_t),
+                count * sizeof(RewardItemUnit));
+        }
+
+        handler_0x1F03(&normalized);
+    }
+
     void handle_roulette_packet(const void* data, int length)
     {
         if (!data || length < static_cast<int>(sizeof(uint16_t)))
@@ -193,81 +249,149 @@ namespace packet
         }
     }
 
-    int __stdcall hooked_recv(uintptr_t socket, char* buffer, int length, int flags)
-    {
-        auto result = g_originalRecv ? g_originalRecv(socket, buffer, length, flags) : -1;
-        if (result > 0)
-            scan_roulette_packets(buffer, result);
 
-        return result;
+    // =======================================================================
+    //  Reward Item Event handlers (opcodes 0x1F01 – 0x1F06)
+    // =======================================================================
+
+    void handler_0x1F01(GameRewardItemGetResultOutgoing* incoming)
+    {
+        reward_item_event::lastClaimSuccess = incoming->result == GameRewardItemGetResult::Success;
+        reward_item_event::lastMessageNumber = incoming->messageNumber;
+        if (reward_item_event::lastClaimSuccess)
+            reward_item_event::claimReady = false;
     }
 
-    bool hook_import_function(const char* moduleName, const char* functionName, void* replacement, void** original)
+    void handler_0x1F03(GameRewardItemListOutgoing* incoming)
     {
-        auto* module = GetModuleHandleA(nullptr);
-        if (!module || !moduleName || !functionName || !replacement || !original)
-            return false;
+        auto count = incoming->itemCount;
+        if (count > reward_item_event::items.size())
+            count = static_cast<uint32_t>(reward_item_event::items.size());
 
-        auto* base = reinterpret_cast<uint8_t*>(module);
-        auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(base);
-        if (dos->e_magic != IMAGE_DOS_SIGNATURE)
-            return false;
+        reward_item_event::items.fill({});
+        reward_item_event::itemCount = count;
 
-        auto* nt = reinterpret_cast<IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
-        if (nt->Signature != IMAGE_NT_SIGNATURE)
-            return false;
-
-        auto importRva = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
-        if (!importRva)
-            return false;
-
-        auto* importDesc = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(base + importRva);
-        for (; importDesc->Name; ++importDesc)
+        for (uint32_t i = 0; i < count; ++i)
         {
-            auto* importedModuleName = reinterpret_cast<const char*>(base + importDesc->Name);
-            if (_stricmp(importedModuleName, moduleName) != 0)
-                continue;
-
-            auto* thunk = reinterpret_cast<IMAGE_THUNK_DATA*>(base + importDesc->FirstThunk);
-            auto* originalThunk = reinterpret_cast<IMAGE_THUNK_DATA*>(base + importDesc->OriginalFirstThunk);
-            for (; thunk->u1.Function; ++thunk, ++originalThunk)
-            {
-                if (IMAGE_SNAP_BY_ORDINAL(originalThunk->u1.Ordinal))
-                    continue;
-
-                auto* importByName = reinterpret_cast<IMAGE_IMPORT_BY_NAME*>(base + originalThunk->u1.AddressOfData);
-                if (std::strcmp(reinterpret_cast<const char*>(importByName->Name), functionName) != 0)
-                    continue;
-
-                DWORD oldProtect = 0;
-                if (!VirtualProtect(&thunk->u1.Function, sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect))
-                    return false;
-
-                *original = reinterpret_cast<void*>(thunk->u1.Function);
-                thunk->u1.Function = reinterpret_cast<ULONG_PTR>(replacement);
-
-                DWORD ignored = 0;
-                VirtualProtect(&thunk->u1.Function, sizeof(void*), oldProtect, &ignored);
-                return true;
-            }
+            reward_item_event::items[i].minutes = incoming->itemList[i].minutes;
+            reward_item_event::items[i].type    = incoming->itemList[i].type;
+            reward_item_event::items[i].typeId  = incoming->itemList[i].typeId;
+            reward_item_event::items[i].count   = incoming->itemList[i].count;
         }
 
-        return false;
+        reward_item_event::hasList = count > 0;
     }
 
-    void hook_recv_packets()
+    void handler_0x1F04(GameRewardItemGetOutgoing*)
     {
-        if (g_originalRecv)
+        reward_item_event::claimReady = true;
+    }
+
+    void handler_0x1F05(GameRewardItemListIndexOutgoing* incoming)
+    {
+        reward_item_event::index = incoming->index;
+        reward_item_event::claimReady = false;
+
+        if (!reward_item_event::hasList || reward_item_event::index >= reward_item_event::itemCount)
+        {
+            reward_item_event::timerStartTick = 0;
+            reward_item_event::timerDurationMs = 0;
+            return;
+        }
+
+        auto minutes = reward_item_event::items[reward_item_event::index].minutes;
+        reward_item_event::timerDurationMs = (minutes * 60000U) + 15000U;
+        reward_item_event::timerStartTick = GetTickCount();
+    }
+
+    void handler_0x1F06(GameRewardItemEventEndedOutgoing*)
+    {
+        reward_item_event::claimReady = false;
+        reward_item_event::timerStartTick = 0;
+        reward_item_event::timerDurationMs = 0;
+    }
+
+    void handle_reward_item_dispatch(uint16_t opcode, void* packet)
+    {
+        switch (opcode)
+        {
+        case 0x1F01:
+            dispatch_reward_item_payload<GameRewardItemGetResultOutgoing>(opcode, packet, handler_0x1F01);
+            break;
+        case 0x1F03:
+            dispatch_reward_item_list_payload(opcode, packet);
+            break;
+        case 0x1F04:
+            dispatch_reward_item_payload<GameRewardItemGetOutgoing>(opcode, packet, handler_0x1F04);
+            break;
+        case 0x1F05:
+            dispatch_reward_item_payload<GameRewardItemListIndexOutgoing>(opcode, packet, handler_0x1F05);
+            break;
+        case 0x1F06:
+            handler_0x1F06(nullptr);
+            break;
+        default:
+            break;
+        }
+    }
+
+    void handle_reward_item_packet(const void* data, int length)
+    {
+        if (!data || length < static_cast<int>(sizeof(uint16_t)))
             return;
 
-        void* original = nullptr;
-        if (hook_import_function("ws2_32.dll", "recv", reinterpret_cast<void*>(hooked_recv), &original))
-            g_originalRecv = reinterpret_cast<RecvFn>(original);
+        auto opcode = *reinterpret_cast<const uint16_t*>(data);
+        switch (opcode)
+        {
+        case 0x1F01:
+            if (length >= static_cast<int>(sizeof(GameRewardItemGetResultOutgoing)))
+                handler_0x1F01(const_cast<GameRewardItemGetResultOutgoing*>(
+                    reinterpret_cast<const GameRewardItemGetResultOutgoing*>(data)));
+            break;
+        case 0x1F03:
+            if (length >= static_cast<int>(GameRewardItemListOutgoing::baseLength))
+                handler_0x1F03(const_cast<GameRewardItemListOutgoing*>(
+                    reinterpret_cast<const GameRewardItemListOutgoing*>(data)));
+            break;
+        case 0x1F04:
+            if (length >= static_cast<int>(sizeof(GameRewardItemGetOutgoing)))
+                handler_0x1F04(const_cast<GameRewardItemGetOutgoing*>(
+                    reinterpret_cast<const GameRewardItemGetOutgoing*>(data)));
+            break;
+        case 0x1F05:
+            if (length >= static_cast<int>(sizeof(GameRewardItemListIndexOutgoing)))
+                handler_0x1F05(const_cast<GameRewardItemListIndexOutgoing*>(
+                    reinterpret_cast<const GameRewardItemListIndexOutgoing*>(data)));
+            break;
+        case 0x1F06:
+            handler_0x1F06(nullptr);
+            break;
+        default:
+            break;
+        }
+    }
+
+    void scan_reward_item_packets(const char* buffer, int length)
+    {
+        if (!buffer || length < static_cast<int>(sizeof(uint16_t)))
+            return;
+
+        for (int offset = 0; offset <= length - static_cast<int>(sizeof(uint16_t)); ++offset)
+        {
+            auto opcode = *reinterpret_cast<const uint16_t*>(buffer + offset);
+            if (opcode >= 0x1F01 && opcode <= 0x1F06)
+            {
+                handle_reward_item_packet(buffer + offset, length - offset);
+                break;
+            }
+        }
     }
 
     void handle_normalized_packet(void* packet)
     {
-        scan_roulette_packets(reinterpret_cast<const char*>(packet), 0x78);
+        auto* buf = reinterpret_cast<const char*>(packet);
+        scan_roulette_packets(buf, 0x78);
+        scan_reward_item_packets(buf, 0x78);
     }
 }
 
@@ -386,6 +510,16 @@ void __declspec(naked) naked_0x5F1E10()
         je roulette_packet
         cmp eax,0x836
         je roulette_packet
+        cmp eax,0x1F01
+        je reward_item_packet
+        cmp eax,0x1F03
+        je reward_item_packet
+        cmp eax,0x1F04
+        je reward_item_packet
+        cmp eax,0x1F05
+        je reward_item_packet
+        cmp eax,0x1F06
+        je reward_item_packet
 
         popad
         mov edx,dword ptr [esp+0x4]
@@ -397,6 +531,16 @@ void __declspec(naked) naked_0x5F1E10()
         push ecx
         push eax
         call packet::handle_roulette_dispatch
+        add esp,0x8
+
+        popad
+        ret
+
+        reward_item_packet:
+        mov ecx,dword ptr [esp+0x28]
+        push ecx
+        push eax
+        call packet::handle_reward_item_dispatch
         add esp,0x8
 
         popad

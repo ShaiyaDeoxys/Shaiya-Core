@@ -43,6 +43,12 @@ Server module:
 MSBuild.exe .\Shaiya-Core.sln /t:sdev /p:Configuration=Release /p:Platform=x86 /m
 ```
 
+All DLL modules:
+
+```powershell
+MSBuild.exe .\Shaiya-Core.sln /p:Configuration=Release /p:Platform=x86 /m
+```
+
 Client module:
 
 ```powershell
@@ -65,7 +71,7 @@ Runtime behavior is controlled through external files such as `CONFIG.INI`, serv
 - FPS boost can also be controlled manually with `/fpsboost on` and `/fpsboost off`.
 - Level cap and enchant cap are configured server-side through `ServerConfig.ini`.
 - `/font` changes the live game font and persists the selected font properties.
-- `F8` opens the ImGui panel, currently used by the server-backed Roulette feature.
+- In-game ImGui buttons provide quick access to Roulette, rewards, remote NPCs, and quick visual settings where those features are enabled.
 
 ## Feature Documentation
 
@@ -85,7 +91,6 @@ Thank you, my friend, for everything.
 
 This project's own code is licensed under the BSD 3-Clause License. See `LICENSE`.
 
-Third-party code keeps its original license terms. See `THIRD_PARTY_NOTICES.md`.
 
 ## Disclaimer
 

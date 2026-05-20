@@ -6,6 +6,28 @@
 #include <cstdlib>
 #include "include/main.h"
 #include "include/config.h"
+#include "include/imgui_layer_internal.h"
+
+namespace config
+{
+    const std::string& ini_path()
+    {
+        static std::string path = []() -> std::string {
+            char moduleFileName[MAX_PATH]{};
+            if (!GetModuleFileNameA(nullptr, moduleFileName, MAX_PATH))
+                return ".\\CONFIG.ini";
+
+            std::string p(moduleFileName);
+            auto slashPos = p.find_last_of("\\/");
+            if (slashPos != std::string::npos)
+                p.resize(slashPos + 1);
+
+            p += "CONFIG.ini";
+            return p;
+        }();
+        return path;
+    }
+}
 
 namespace
 {
@@ -17,45 +39,27 @@ namespace
         return value;
     }
 
-    std::string get_client_config_ini_path()
-    {
-        char moduleFileName[MAX_PATH]{};
-        if (!GetModuleFileNameA(nullptr, moduleFileName, MAX_PATH))
-            return ".\\CONFIG.ini";
-
-        std::string path(moduleFileName);
-        auto slashPos = path.find_last_of("\\/");
-        if (slashPos != std::string::npos)
-            path.resize(slashPos + 1);
-
-        path += "CONFIG.ini";
-        return path;
-    }
-
-    // ID view is always enabled — no CONFIG.ini dependency.
-    std::uint8_t g_viewIdEnabled = 1;
-
     bool load_skip_updater_setting()
     {
-        auto iniPath = get_client_config_ini_path();
+        auto& iniPath = config::ini_path();
         return GetPrivateProfileIntA("ADVANCED", "SKIPUPDATER", 0, iniPath.c_str()) != 0;
     }
 
     bool load_skip_server_selection_setting()
     {
-        auto iniPath = get_client_config_ini_path();
+        auto& iniPath = config::ini_path();
         return GetPrivateProfileIntA("ADVANCED", "SKIPSERVERSELECTION", 1, iniPath.c_str()) != 0;
     }
 
     bool load_skip_mode_selection_setting()
     {
-        auto iniPath = get_client_config_ini_path();
+        auto& iniPath = config::ini_path();
         return GetPrivateProfileIntA("ADVANCED", "SKIPMODESELECTION", 1, iniPath.c_str()) != 0;
     }
 
     int load_custom_ui_level()
     {
-        auto iniPath = get_client_config_ini_path();
+        auto& iniPath = config::ini_path();
         char buffer[16]{};
         GetPrivateProfileStringA("ADVANCED", "UI", "", buffer, static_cast<DWORD>(sizeof(buffer)), iniPath.c_str());
         if (buffer[0] == '\0')
@@ -66,9 +70,16 @@ namespace
 
     bool load_imgui_overlay_setting()
     {
-        auto iniPath = get_client_config_ini_path();
+        auto& iniPath = config::ini_path();
         return GetPrivateProfileIntA("ADVANCED", "IMGUIOVERLAY", 1, iniPath.c_str()) != 0;
     }
+
+    bool load_emojis_enabled_setting()
+    {
+        auto& iniPath = config::ini_path();
+        return GetPrivateProfileIntA("ADVANCED", "EMOJIS", 1, iniPath.c_str()) != 0;
+    }
+
 
     using GetCommandLineAProc = LPSTR(WINAPI*)();
     GetCommandLineAProc g_originalGetCommandLineA = nullptr;
@@ -112,10 +123,13 @@ namespace
 
 void __declspec(naked) naked_0x4E6D76()
 {
+    using namespace imgui_layer;
     __asm
     {
-        cmp byte ptr ds:[g_viewIdEnabled], 1
-        jne disabled
+        // Check live toggle — if disabled, return 0 immediately
+        cmp byte ptr [g_idViewEnabled], 0
+        je disabled
+
         mov al, byte ptr ds:[0x0090D1D4]
         cmp al, 1
         je originalcode
@@ -125,12 +139,12 @@ void __declspec(naked) naked_0x4E6D76()
         sete al
         ret
 
-        disabled:
-        xor al, al
-        ret
-
         originalcode:
         mov al, 1
+        ret
+
+        disabled:
+        xor al, al
         ret
     }
 }
@@ -146,6 +160,12 @@ namespace config
     {
         return load_imgui_overlay_setting();
     }
+
+    bool load_emojis_enabled()
+    {
+        return load_emojis_enabled_setting();
+    }
+
 
     bool load_skip_server_selection()
     {

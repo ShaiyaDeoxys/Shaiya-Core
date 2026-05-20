@@ -4,10 +4,12 @@
 #include <shaiya/include/network/game/outgoing/1F00.h>
 #include "include/main.h"
 #include "include/shaiya/CGameData.h"
+#include "include/shaiya/Configuration.h"
 #include "include/shaiya/CUser.h"
 #include "include/shaiya/ItemInfo.h"
 #include "include/shaiya/NetworkHelper.h"
 #include "include/shaiya/RewardItem.h"
+#include "include/shaiya/Roulette.h"
 #include "include/shaiya/SConnection.h"
 using namespace shaiya;
 
@@ -122,6 +124,15 @@ void __declspec(naked) naked_0x474EFB()
 
 unsigned u0x4EC850 = 0x4EC850;
 unsigned u0x47BDA7 = 0x47BDA7;
+
+static void on_user_enter_world(CUser* user)
+{
+    if (Configuration::RewardBarEnabled)
+        RewardItemEvent::send(user);
+    if (Configuration::RouletteEnabled)
+        roulette::send_list(user);
+}
+
 void __declspec(naked) naked_0x47BDA2()
 {
     __asm
@@ -131,7 +142,7 @@ void __declspec(naked) naked_0x47BDA2()
         pushad
 
         push ebp // user
-        call RewardItemEvent::send
+        call on_user_enter_world
         add esp,0x4
 
         popad
@@ -144,6 +155,10 @@ void hook::packet_reward_item()
 {
     // CUser::PacketProcessing
     util::detour((void*)0x474EFB, naked_0x474EFB, 5);
-    // CUser::PacketUserDBChar case 0x407
+}
+
+void hook::on_enter_world()
+{
+    // CUser::PacketUserDBChar case 0x407 — send feature data on login
     util::detour((void*)0x47BDA2, naked_0x47BDA2, 5);
 }

@@ -30,6 +30,7 @@ namespace hook
     void packet_quest();
     void raid_150();
     void packet_reward_item();
+    void on_enter_world();
     void packet_shop();
     void user_equipment();
     void user_skill();

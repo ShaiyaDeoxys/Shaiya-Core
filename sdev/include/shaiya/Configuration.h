@@ -16,6 +16,10 @@ namespace shaiya
         static void LoadRoulette();
         static void LoadEtainShield();
 
+        // Feature toggles from ServerConfig.ini (default ON)
+        inline static bool RewardBarEnabled = true;
+        inline static bool RouletteEnabled = true;
+
     private:
 
         inline static std::filesystem::path m_root{};

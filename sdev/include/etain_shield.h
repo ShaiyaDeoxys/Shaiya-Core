@@ -38,6 +38,6 @@ namespace etain_shield
     // --- AntiMoveAttack ---
 
     /// Snapshots position and activates the movement lock for this attack.
-    /// Call when an attack/skill packet passes validation.
+    /// Applied for both basic attacks and skills. Exempt: Stringer (dash).
     void lock_movement_for_attack(shaiya::CUser* user);
 }

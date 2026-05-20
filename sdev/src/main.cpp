@@ -122,7 +122,9 @@ void Main()
     hook::packet_pc();
     hook::packet_quest();
     hook::raid_150();
-    hook::packet_reward_item();
+    if (Configuration::RewardBarEnabled)
+        hook::packet_reward_item();
+    hook::on_enter_world();
     hook::packet_shop();
     hook::user_equipment();
     hook::user_shape();
@@ -131,6 +133,8 @@ void Main()
     hook::world_thread();
     Configuration::LoadItemSetData();
     Configuration::LoadItemSynthesis();
-    Configuration::LoadRewardItemEvent();
-    Configuration::LoadRoulette();
+    if (Configuration::RewardBarEnabled)
+        Configuration::LoadRewardItemEvent();
+    if (Configuration::RouletteEnabled)
+        Configuration::LoadRoulette();
 }

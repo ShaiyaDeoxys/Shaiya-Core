@@ -6,6 +6,7 @@
 #include "include/etain_shield_config.h"
 #include "include/shaiya/CObject.h"
 #include "include/shaiya/CMob.h"
+#include "include/shaiya/CSkill.h"
 #include "include/shaiya/CUser.h"
 #include "include/shaiya/CZone.h"
 #include "include/shaiya/MobInfo.h"
@@ -130,8 +131,15 @@ namespace etain_shield
         if (user->etainAttackLockTick == 0)
             return false;
 
-        bool timedOut   = (now - user->etainAttackLockTick) >= kLockTimeoutMs;
+        auto elapsed = now - user->etainAttackLockTick;
+
+        bool timedOut   = elapsed >= kLockTimeoutMs;
         bool attackDone = (user->attackType == UserAttackType::None);
+
+        // Enforce a minimum lock duration regardless of attackType.
+        // Prevents jump-cancelling from clearing the lock prematurely.
+        if (elapsed < g_etainConfig.moveAttackMinLockMs)
+            return true;
 
         if (!timedOut && !attackDone)
             return true;
@@ -153,9 +161,32 @@ namespace etain_shield
         return false;
     }
 
+    /// Check if the user is currently executing a skill exempt from the lock.
+    static bool is_skip_skill_active(CUser* user)
+    {
+        if (user->attackType != UserAttackType::Skill)
+            return false;
+
+        auto idx = user->prevSkillUseIndex;
+        if (idx >= 256 || !user->skills[idx])
+            return false;
+
+        int skillId = user->skills[idx]->skillId;
+        for (auto id : g_etainConfig.moveAttackSkipSkills)
+        {
+            if (id == skillId)
+                return true;
+        }
+        return false;
+    }
+
     void lock_movement_for_attack(CUser* user)
     {
         if (!g_etainConfig.enabled || !g_etainConfig.moveAttackEnabled)
+            return;
+
+        // Exempt configured dash/displacement skills from the lock.
+        if (is_skip_skill_active(user))
             return;
 
         auto now = GetTickCount();
@@ -214,58 +245,55 @@ namespace etain_shield
 
         auto elapsed = now - user->etainLastMoveTick;
 
-        // Too soon — delta too small for meaningful math.
-        if (elapsed < c.speedMinTickDelta)
+        // Sub-50ms: allow and advance tracking (too short to hack meaningfully).
+        if (elapsed < 50)
+        {
+            user->etainLastPos      = { packet->x, packet->y, packet->z };
+            user->etainLastMoveTick = now;
             return true;
+        }
 
         float dx       = packet->x - user->etainLastPos.x;
         float dz       = packet->z - user->etainLastPos.z;
         float distance = std::sqrt(dx * dx + dz * dz);
 
-        // Likely a legitimate teleport — reset and allow.
-        if (distance > c.speedTeleportThreshold)
+        // Teleport check — only trust if player has NO recent violations.
+        if (distance > c.speedTeleportThreshold && user->etainViolationCount == 0)
         {
             user->etainLastPos       = { packet->x, packet->y, packet->z };
             user->etainLastMoveTick  = now;
-            user->etainViolationCount = 0;
             return true;
         }
 
         auto speed = user->abilityMoveSpeed;
         if (speed < 1) speed = 1;
 
-        float maxDist = (static_cast<float>(speed) *
-                         (static_cast<float>(elapsed) / 1000.0f) *
-                         c.speedTolerance)
-                        + c.speedFreeDistance;
+        // maxDist = how far this player could legitimately travel in `elapsed` ms.
+        float maxDist = static_cast<float>(speed) *
+                        (static_cast<float>(elapsed) / 1000.0f) *
+                        c.speedTolerance;
 
         if (distance <= maxDist)
         {
+            // Legitimate movement — advance tracking.
             user->etainLastPos       = { packet->x, packet->y, packet->z };
             user->etainLastMoveTick  = now;
-            if (user->etainViolationCount > 0)
-                --user->etainViolationCount;
+            user->etainViolationCount = 0;
             return true;
         }
 
-        // --- Violation ---
+        // --- Violation: drop packet, never advance server position ---
         ++user->etainViolationCount;
+        user->etainLastMoveTick = now;
 
+        // Send correction every N drops to resync the client.
         if (user->etainViolationCount >= c.speedViolationThreshold)
         {
-            if (user->zone)
-                CZone::MoveUser(user->zone, user,
-                    user->etainLastPos.x, user->etainLastPos.y, user->etainLastPos.z);
-
             send_pos_correction(user, user->etainLastPos);
-
             user->etainViolationCount = 0;
-            user->etainLastMoveTick   = now;
-            return false;
         }
 
-        user->etainLastMoveTick = now;
-        return true;
+        return false;
     }
 
     void reset_tracking(CUser* user)
@@ -289,6 +317,21 @@ namespace etain_shield
     //  positions and compare against:
     //    allowed = max(abilityAttackRange, skillRange) + targetSize + margin
 
+    /// Returns true if a mob is currently moving (chasing a target).
+    static bool is_mob_moving(CMob* mob)
+    {
+        return mob->status == MobStatus::Chase;
+    }
+
+    /// Returns true if a user target has moved recently (within ~500ms).
+    static bool is_user_moving(CUser* target)
+    {
+        if (target->etainLastMoveTick == 0)
+            return false;
+        auto elapsed = GetTickCount() - target->etainLastMoveTick;
+        return elapsed < 500;
+    }
+
     int validate_pve_range(CUser* user, CMob* mob, int skillRange)
     {
         if (!g_etainConfig.enabled || !g_etainConfig.rangeHackEnabled)
@@ -302,8 +345,10 @@ namespace etain_shield
         int range = user->abilityAttackRange;
         if (skillRange > range) range = skillRange;
 
+        int grace = is_mob_moving(mob) ? g_etainConfig.rangeMovingGrace : 0;
+
         float allowed = static_cast<float>(
-            range + static_cast<int>(mob->info->size) + g_etainConfig.rangeMargin);
+            range + static_cast<int>(mob->info->size) + g_etainConfig.rangeMargin + grace);
 
         return (dist <= allowed) ? 1 : 0;
     }
@@ -321,7 +366,9 @@ namespace etain_shield
         int range = attacker->abilityAttackRange;
         if (skillRange > range) range = skillRange;
 
-        float allowed = static_cast<float>(range + 1 + g_etainConfig.rangeMargin);
+        int grace = is_user_moving(target) ? g_etainConfig.rangeMovingGrace : 0;
+
+        float allowed = static_cast<float>(range + 1 + g_etainConfig.rangeMargin + grace);
 
         return (dist <= allowed) ? 1 : 0;
     }
@@ -338,9 +385,11 @@ namespace etain_shield
         if (!target)
             return 1;
 
+        int grace = is_user_moving(target) ? g_etainConfig.rangeMovingGrace : 0;
+
         float dist = distance_2d(user_pos(user), user_pos(target));
         float allowed = static_cast<float>(
-            user->abilityAttackRange + 1 + g_etainConfig.rangeMargin);
+            user->abilityAttackRange + 1 + g_etainConfig.rangeMargin + grace);
 
         return (dist <= allowed) ? 1 : 0;
     }
@@ -357,10 +406,12 @@ namespace etain_shield
         if (!mob || !mob->info)
             return 1;
 
+        int grace = is_mob_moving(mob) ? g_etainConfig.rangeMovingGrace : 0;
+
         float dist = distance_2d(user_pos(user), mob_pos(mob));
         float allowed = static_cast<float>(
             user->abilityAttackRange + static_cast<int>(mob->info->size) +
-            g_etainConfig.rangeMargin);
+            g_etainConfig.rangeMargin + grace);
 
         return (dist <= allowed) ? 1 : 0;
     }
@@ -414,7 +465,7 @@ void __declspec(naked) naked_0x458000()
         jz blocked
 
         pushad
-        push ebx
+        push ebx                // user
         call etain_shield::lock_movement_for_attack
         add esp,0x4
         popad
@@ -450,7 +501,7 @@ void __declspec(naked) naked_0x457F50()
         jz blocked
 
         pushad
-        push edi
+        push edi                // user
         call etain_shield::lock_movement_for_attack
         add esp,0x4
         popad

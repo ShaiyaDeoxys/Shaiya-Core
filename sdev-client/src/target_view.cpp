@@ -1,11 +1,11 @@
 #include <algorithm>
-#include <cstdlib>
 #include <cstdio>
 #include <string>
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <util/util.h>
 #include "include/main.h"
+#include "include/config.h"
 #include "include/shaiya/CCharacter.h"
 #include "include/shaiya/CMonster.h"
 #include "include/shaiya/CWindow.h"
@@ -18,43 +18,10 @@ namespace target_view
     constexpr int kTextOffsetX = 66;
     constexpr int kTextOffsetY = 36;
     constexpr int kCustomUiTextOffsetY = 22;
-    bool g_customUiLoaded = false;
-    bool g_customUiEnabled = false;
-
-    std::string get_client_config_ini_path()
-    {
-        char moduleFileName[MAX_PATH]{};
-        if (!GetModuleFileNameA(nullptr, moduleFileName, MAX_PATH))
-            return ".\\CONFIG.ini";
-
-        std::string path(moduleFileName);
-        auto slashPos = path.find_last_of("\\/");
-        if (slashPos != std::string::npos)
-            path.resize(slashPos + 1);
-
-        path += "CONFIG.ini";
-        return path;
-    }
-
-    bool is_custom_ui_enabled()
-    {
-        if (g_customUiLoaded)
-            return g_customUiEnabled;
-
-        char buffer[16]{};
-        auto iniPath = get_client_config_ini_path();
-        GetPrivateProfileStringA("ADVANCED", "UI", "", buffer, static_cast<DWORD>(sizeof(buffer)), iniPath.c_str());
-        if (buffer[0] == '\0')
-            GetPrivateProfileStringA("CONFIG", "UI", "0", buffer, static_cast<DWORD>(sizeof(buffer)), iniPath.c_str());
-
-        g_customUiEnabled = std::atoi(buffer) == 1;
-        g_customUiLoaded = true;
-        return g_customUiEnabled;
-    }
 
     int get_text_offset_y()
     {
-        return is_custom_ui_enabled() ? kCustomUiTextOffsetY : kTextOffsetY;
+        return config::load_custom_ui() == 1 ? kCustomUiTextOffsetY : kTextOffsetY;
     }
 
     LPD3DXFONT get_current_game_font()

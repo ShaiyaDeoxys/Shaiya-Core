@@ -8,7 +8,7 @@
 #include "include/main.h"
 #include "include/shaiya/CNetwork.h"
 #include "include/shaiya/CQuickSlot.h"
-#include "include/shaiya/Static.h"
+#include "include/shaiya/Static.h" // g_var client/window state
 #include "include/shaiya/Unknown.h"
 using namespace shaiya;
 #pragma comment(lib, "imm32.lib")
@@ -134,12 +134,6 @@ namespace window
         // reaches the legacy single-byte handler.
         if (inject_unicode_textbox_input(hwnd, msg, wParam, lParam))
             return 0;
-
-        if (msg == kClientSysMsgWindowMessage)
-        {
-            Static::SysMsgToChatBox(static_cast<ChatType>(wParam), static_cast<int>(lParam), 1);
-            return 0;
-        }
 
         if (msg == kClientRouletteListWindowMessage)
         {

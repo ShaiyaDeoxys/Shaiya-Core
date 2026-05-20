@@ -130,6 +130,8 @@ void Configuration::LoadServerConfig()
         {
             util::ini::write_pair(L"Server", L"EnchantCap", L"20", path);
             util::ini::write_pair(L"Server", L"LevelCap", L"70", path);
+            util::ini::write_pair(L"Server", L"RewardBar", L"1", path);
+            util::ini::write_pair(L"Server", L"Roulette", L"1", path);
         }
 
         auto enchantCap = static_cast<int>(util::ini::get_value(L"Server", L"EnchantCap", DefaultEnchantCap, path));
@@ -144,6 +146,9 @@ void Configuration::LoadServerConfig()
         auto levelCapValue = static_cast<uint8_t>(levelCap);
         for (auto address : LevelCapAddresses)
             util::write_memory(reinterpret_cast<void*>(address), &levelCapValue, sizeof(levelCapValue));
+
+        RewardBarEnabled = util::ini::get_value(L"Server", L"RewardBar", 1, path) != 0;
+        RouletteEnabled = util::ini::get_value(L"Server", L"Roulette", 1, path) != 0;
     }
     catch (...)
     {
@@ -651,9 +656,31 @@ void Configuration::LoadEtainShield()
         g_etainConfig.rangeMargin = static_cast<int>(
             util::ini::get_value(L"AntiRangeHack", L"Margin", 4, path));
 
+        g_etainConfig.rangeMovingGrace = static_cast<int>(
+            util::ini::get_value(L"AntiRangeHack", L"MovingGrace", 5, path));
+
         // [AntiMoveAttack]
         g_etainConfig.moveAttackEnabled =
             util::ini::get_value(L"AntiMoveAttack", L"Enabled", 1, path) != 0;
+
+        g_etainConfig.moveAttackMinLockMs = static_cast<uint32_t>(
+            util::ini::get_value(L"AntiMoveAttack", L"MinLockMs", 600, path));
+
+        auto skipStr = util::ini::get_value(L"AntiMoveAttack", L"SkipSkillIds", L"56", path);
+        g_etainConfig.moveAttackSkipSkills.clear();
+        if (!skipStr.empty())
+        {
+            size_t pos = 0;
+            while (pos < skipStr.size())
+            {
+                auto next = skipStr.find(L',', pos);
+                if (next == std::wstring::npos) next = skipStr.size();
+                auto token = skipStr.substr(pos, next - pos);
+                if (!token.empty())
+                    g_etainConfig.moveAttackSkipSkills.push_back(std::stoi(token));
+                pos = next + 1;
+            }
+        }
     }
     catch (...)
     {

@@ -52,7 +52,7 @@ TITLES=ON
 ; Visual colored-name rendering from helmet data.
 COLOUR=ON
 
-; Optional visual/performance toggles controlled by chat commands and F7.
+; Optional visual/performance toggles controlled by chat commands and the ImGui settings panel.
 COSTUMES=TRUE
 PETS=TRUE
 WINGS=TRUE
@@ -65,6 +65,18 @@ HEIGHT=13
 WEIGHT=400
 ITALIC=0
 FACENAME=Arial
+
+[IMGUI]
+; Runtime ImGui overlay state. Most values are written by dragging buttons/panels in game.
+INGAME_CHAT_ACTIVE=FALSE
+PARALLEL_CHAT_ACTIVE=FALSE
+HIDE_NATIVE_CHAT=FALSE
+ID_VIEW_ENABLED=TRUE
+
+[CHATOPTIONS]
+; Vertical offset for both parallel chat bars (normalized, 0.0 = default).
+; Adjusted from the F9 debug panel > Parallel Chat tab.
+VerticalOffset=0.000
 ```
 
 ## Commands
@@ -93,7 +105,7 @@ This section is the client-side feature map. Every entry is installed from `Main
 - **Single-server skip**: `ADVANCED/SKIPSERVERSELECTION=1` hides the server panel and selects the only available server through the safe delayed stock path.
 - **Unicode main HWND**: upgrades the GAME window to a Unicode window and keeps the visible title as `Shaiya`, preventing the legacy title truncation issue.
 - **UTF-8 chat input**: accepts composed Unicode/IME text, stores UTF-8 bytes in the stock textbox, fixes multibyte wrapping/rendering branches, and removes the forced byte-127 send terminator.
-- **System message dispatch**: provides a private window message used by client code to safely post system messages back through the game UI thread.
+- **Client UI dispatch**: subclasses the game window so ImGui helpers can safely post roulette requests and chat-token inserts back through the game UI thread.
 - **Welcome message**: posts the existing `SysMsg` welcome entry after the client UI is ready. The message text remains owned by the normal `sysmsg.txt` data.
 - **Visual chat tokens**: draws a movable ImGui emoji button near the chat input during gameplay. The button position can be relocated from the picker panel (Move/Reset) and is persisted to `CONFIG.INI`. The picker scans `emojiN.png` entries from `Assets/Emojis` and `gifN.gif` entries from `Assets/Gifs` in `data.sah/saf`, then inserts plain chat tokens such as `:emoji1:` or `:gif2:` into the stock textbox through the game UI thread. The picker exposes separate ON/OFF toggles for emojis and GIFs; disabled token families are hidden from native text without drawing an overlay. GIF picker entries use lightweight static previews with a bounded resident cache, while full animation is loaded only when a GIF is rendered in chat/floating text. Packets and server handling remain plain text.
 
@@ -149,7 +161,7 @@ This section is the client-side feature map. Every entry is installed from `Main
 - **Two-hand/off-hand logic**: fixes `CPlayerData::IsTwoHandWeapon` behavior so custom off-hand support can coexist with one-hand weapons.
 - **Weapon step display**: patches the client weapon-step path used by lapisian/enchant display.
 - **Item description augmentation**: a background thread runs once after item data is loaded and appends OJ reroll info (maximum OJs and highest OJ value, or "cannot be rerolled") and grade value (admin-only) to each item's description pointer in-place. Zero per-frame overhead.
-- **NPC shortcut buttons**: draws a vertical strip of icon buttons along the right edge of the inventory panel. Each button loads its texture from `Assets/General/inven_new_buton{1..6}.png` in `data.saf` as a four-frame sprite strip (normal, hover, pressed, disabled).
+- **Remote NPC panel**: `NpcIcon.png` from `Assets/General` opens a compact ImGui panel for Market, Blacksmith, RR Blacksmith, Vet Manager, Bank, and Guild Manager. The button and panel positions persist in the ImGui settings.
 - **Vehicle packet/display support**: supports vehicle-related EP6.4 shape/list packet fields and client display paths where implemented.
 
 ### Quick Slots And Input
@@ -182,12 +194,13 @@ This section is the client-side feature map. Every entry is installed from `Main
 - Applies camera limit from the global `g_cameraLimit` value.
 - Applies costume, pet, wing, and dungeon shadow/lag workarounds used by the current visual setup.
 
-### Discord And ImGui Panel
+### Discord And ImGui Overlay
 
 - Discord RPC initializes with the static application id/message defined in `src/discord.cpp`.
-- `F8` toggles the ImGui roulette panel. The panel is visible to all players, requests the server reward list, displays real item names/icons from the configured server rewards, and sends the server roulette roll packet. Hovering a reward on the wheel shows the item name and description tooltip.
-- `F9` toggles the GM debug panel (requires `IsAdmin`). Shows a chat type monitor that records incoming chat types with preview text to help identify upper-bar exclusions. The monitor is a per-session toggle activated from the panel. The panel code lives in `src/debug_panel.cpp`.
-- `F7` remains an external realtime/performance toggle and is not part of the panel system.
+- The roulette panel is opened from `RouletteIcon.png`. It is visible to all players, requests the server reward list, displays real item names/icons from the configured server rewards, and sends the server roulette roll packet. Hovering a reward on the wheel shows the item name and description tooltip.
+- The settings button opens a compact `Quick Settings` panel for visual toggles such as wings, pets, costumes, titles, colours, FPS boost, and effects. The button and panel positions persist in `CONFIG.INI`.
+- `F9` toggles the minimal GM debug panel (requires `IsAdmin`). It keeps the ID View toggle and a Parallel Chat tab with activation toggles and a vertical-offset slider that shifts both chat bars together.
+- The parallel chat overlay mirrors native upper/lower chat text through ImGui with hardcoded Tahoma 14px font and text shadow. Layout uses normalized screen coordinates (fixed horizontal position and size); only the vertical offset is user-adjustable via the debug panel and persisted in `[CHATOPTIONS]`.
 - The welcome system message is a lifecycle behavior rather than a user-controlled panel feature.
 - The emoji/GIF picker is an in-world chat helper, not a panel module. Its ON/OFF controls live inside the picker.
 - DirectInput mouse hook suppresses game click-to-move input when ImGui owns the cursor, preventing character movement behind panels.
@@ -202,7 +215,7 @@ This section is the client-side feature map. Every entry is installed from `Main
 - Visual chat token assets are read from the internal data archive: `Assets/Emojis/emojiN.png` and `Assets/Gifs/gifN.gif`.
 - Roulette background is read from `Assets/General/Roulette.png` inside `data.sah/saf`.
 - Roulette item icons use embedded DDS atlas resources in `resources/item_icons_atlas`. These resources mirror the client item icon atlases needed to draw server-defined rewards inside the ImGui panel. DDS textures (DXT1/DXT3/DXT5) are decoded by a built-in parser; PNG textures are decoded by stb_image. Neither path requires the D3DX runtime.
-- NPC shortcut button textures are read from `Assets/General/inven_new_buton{1..6}.png` inside `data.sah/saf`. Each PNG is a 4-frame vertical sprite strip (normal, hover, pressed, disabled).
+- Remote NPC, settings, reward, and roulette buttons load their PNGs from `Assets/General` inside `data.sah/saf`.
 - Visual title images are read from `Assets/Titles/emojiN.png` (static) and `Assets/TitlesAnimated/gifN.gif` (animated) inside `data.sah/saf`.
 - Elemental icon badges are read from `Assets/General/{fire,water,earth,wind}.png` inside `data.sah/saf`. The SAH index is parsed once to locate the files and each PNG is decoded by stb_image into a D3D9 managed texture.
 - The client intentionally keeps icon assets outside the broad PNG redirect unless a feature explicitly handles them.
