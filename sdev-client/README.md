@@ -74,9 +74,16 @@ HIDE_NATIVE_CHAT=FALSE
 ID_VIEW_ENABLED=TRUE
 
 [CHATOPTIONS]
-; Vertical offset for both parallel chat bars (normalized, 0.0 = default).
-; Adjusted from the F9 debug panel > Parallel Chat tab.
-VerticalOffset=0.000
+; Parallel chat window positions and sizes in normalized screen coordinates (0.0–1.0).
+; Written by the F9 debug panel > Parallel Chat tab.
+UpperX=0.000
+UpperY=0.400
+UpperW=0.200
+UpperH=0.300
+LowerX=0.000
+LowerY=0.600
+LowerW=0.200
+LowerH=0.300
 ```
 
 ## Commands
@@ -199,8 +206,8 @@ This section is the client-side feature map. Every entry is installed from `Main
 - Discord RPC initializes with the static application id/message defined in `src/discord.cpp`.
 - The roulette panel is opened from `RouletteIcon.png`. It is visible to all players, requests the server reward list, displays real item names/icons from the configured server rewards, and sends the server roulette roll packet. Hovering a reward on the wheel shows the item name and description tooltip.
 - The settings button opens a compact `Quick Settings` panel for visual toggles such as wings, pets, costumes, titles, colours, FPS boost, and effects. The button and panel positions persist in `CONFIG.INI`.
-- `F9` toggles the minimal GM debug panel (requires `IsAdmin`). It keeps the ID View toggle and a Parallel Chat tab with activation toggles and a vertical-offset slider that shifts both chat bars together.
-- The parallel chat overlay mirrors native upper/lower chat text through ImGui with hardcoded Tahoma 14px font and text shadow. Layout uses normalized screen coordinates (fixed horizontal position and size); only the vertical offset is user-adjustable via the debug panel and persisted in `[CHATOPTIONS]`.
+- `F9` toggles the minimal GM debug panel (requires `IsAdmin`). It keeps the ID View toggle and a Parallel Chat section with activation toggles and color controls.
+- The parallel chat overlay mirrors native upper/lower chat text through ImGui with hardcoded Tahoma 14px font and text shadow. Each window has a drag handle for repositioning and a resize grip. Layout is stored in normalized screen coordinates and persisted in `[CHATOPTIONS]`.
 - The welcome system message is a lifecycle behavior rather than a user-controlled panel feature.
 - The emoji/GIF picker is an in-world chat helper, not a panel module. Its ON/OFF controls live inside the picker.
 - DirectInput mouse hook suppresses game click-to-move input when ImGui owns the cursor, preventing character movement behind panels.

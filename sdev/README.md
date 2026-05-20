@@ -71,6 +71,8 @@ Configuration::LoadRoulette();
 - `ServerConfig.ini` is created with defaults when missing.
 - `EnchantCap` defaults to `20`, is clamped to `1..49`, and patches lapisian/enchant cap comparisons.
 - `LevelCap` defaults to `70`, is clamped to `1..254`, and patches known server level-cap comparisons.
+- `RewardBar` defaults to `1`. When `0`, the reward item event system is disabled.
+- `Roulette` defaults to `1`. When `0`, the roulette system is disabled.
 - `BattleFieldMoveInfo.ini` maps a level range to one destination per family: Human, Elf, Death Eater, and Vail.
 - `SetItem.SData` loads decrypted set bonuses and refreshes server-side synergy tables.
 - `ChaoticSquare.ini` loads item synthesis recipes and chaotic-square result tables.
@@ -284,6 +286,8 @@ Enabled=1
 [Server]
 EnchantCap=20
 LevelCap=70
+RewardBar=1
+Roulette=1
 ```
 
 ### Roulette.ini
