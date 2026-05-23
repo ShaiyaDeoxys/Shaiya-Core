@@ -1112,10 +1112,18 @@ void hook::utilities()
     util::write_memory((void*)0x4616B4, &cloakDefenseResistanceStart, sizeof(cloakDefenseResistanceStart));
     util::write_memory((void*)0x461D89, &cloakDefenseResistanceStart, sizeof(cloakDefenseResistanceStart));
 
-    // Change ress leader timer from 30s to 5s.
+    // Change leader resurrection timer from 30s to 5s.
     // add eax,30000 -> add eax,5000
     int ressLeaderTimerMs = 5000;
     util::write_memory((void*)0x478EA3, &ressLeaderTimerMs, sizeof(ressLeaderTimerMs));
+
+    // UM chars can ress leader: server authorization.
+    // 00466540 consumes the leader resurrection timer. Stock ps_game checks
+    // CUser::grow at +0x12F and jumps to normal rebirth when grow == 3 before
+    // checking the map, party, leader alive state, and same-zone validation.
+    // NOP only that jump; the remaining validations still gate the feature.
+    unsigned char allowGrow3LeaderResurrection[] = { 0x90, 0x90 };
+    util::write_memory((void*)0x46656C, allowGrow3LeaderResurrection, sizeof(allowGrow3LeaderResurrection));
 
     // Change logout time .ms.
     // CUser+0x587C stores the logout timestamp; these four paths used

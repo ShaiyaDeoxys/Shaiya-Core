@@ -74,6 +74,12 @@ namespace
         return GetPrivateProfileIntA("ADVANCED", "IMGUIOVERLAY", 1, iniPath.c_str()) != 0;
     }
 
+    bool load_custom_chat_setting()
+    {
+        auto& iniPath = config::ini_path();
+        return GetPrivateProfileIntA("ADVANCED", "CUSTOMCHAT", 1, iniPath.c_str()) != 0;
+    }
+
     bool load_emojis_enabled_setting()
     {
         auto& iniPath = config::ini_path();
@@ -159,6 +165,11 @@ namespace config
     bool load_imgui_overlay()
     {
         return load_imgui_overlay_setting();
+    }
+
+    bool load_custom_chat()
+    {
+        return load_custom_chat_setting();
     }
 
     bool load_emojis_enabled()

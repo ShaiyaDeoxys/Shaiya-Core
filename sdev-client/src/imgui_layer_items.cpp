@@ -1,13 +1,49 @@
 #include "include/imgui_layer_internal.h"
+#include "include/game_data_archive.h"
 #include <external/stb/stb_image.h>
 #include "include/shaiya/CDataFile.h"
 #include "include/shaiya/CItem.h"
 #include "include/shaiya/CTexture.h"
 #include "include/shaiya/ItemInfo.h"
-#include "resources/resource.h"
 #pragma comment(lib, "d3d9.lib")
 
 namespace imgui_layer {
+    namespace
+    {
+        struct ClientAtlasFile
+        {
+            uint64_t offset = 0;
+            uint64_t size = 0;
+        };
+
+        bool g_clientIconAtlasScanned = false;
+        std::unordered_map<std::string, ClientAtlasFile> g_clientIconAtlasFiles;
+
+        bool is_client_icon_atlas_folder(const std::string& lowerPath)
+        {
+            return lowerPath == "interface\\icon"
+                || lowerPath == "data\\interface\\icon"
+                || lowerPath == "data/interface/icon";
+        }
+
+        void ensure_client_icon_atlas_index()
+        {
+            if (g_clientIconAtlasScanned)
+                return;
+
+            g_clientIconAtlasScanned = true;
+            game_data::scan_sah_files([](const game_data::SahFileEntry& entry) {
+                if (is_client_icon_atlas_folder(entry.lowerPath)
+                    && entry.lowerFileName.size() > 4
+                    && entry.lowerFileName.ends_with(".dds"))
+                {
+                    g_clientIconAtlasFiles.try_emplace(
+                        entry.lowerFileName,
+                        ClientAtlasFile{ entry.offset, entry.size });
+                }
+            });
+        }
+    }
 
     int count_inventory_item(uint8_t type, uint8_t typeId)
     {
@@ -69,134 +105,113 @@ namespace imgui_layer {
         return entry.texture.texture ? &entry.texture : nullptr;
     }
 
-    bool get_item_icon_atlas_config(int type, std::string& outFileName, int& outCols, int& outRows, int& outWidth, int& outHeight)
+    const char* item_icon_atlas_file_for_type(int type)
     {
-        if (type >= 1 && type <= 24)
-        {
-            char fileName[16]{};
-            std::snprintf(fileName, sizeof(fileName), "%02d.dds", type);
-            outFileName = fileName;
-            outCols = 4;
-            outRows = 16;
-            outWidth = 128;
-            outHeight = 512;
-            return true;
-        }
+        static constexpr const char* kAtlasByItemType[] = {
+            nullptr,
+            "01.dds", "02.dds", "03.dds", "04.dds", "05.dds", "06.dds", "07.dds", "08.dds", "09.dds", "10.dds",
+            "11.dds", "12.dds", "13.dds", "14.dds", "15.dds", "16.dds", "17.dds", "18.dds", "19.dds", "20.dds",
+            "21.dds", "22.dds", "23.dds", "24.dds", "icon_somo.dds", "icon_somo.dds", "icon_somo.dds",
+            "icon_somo.dds", "icon_somo.dds", "icon_rapis.dds", "31.dds", "32.dds", "33.dds", "34.dds",
+            "35.dds", "36.dds", "37.dds", "icon_somo.dds", "39.dds", "40.dds", "icon_somo.dds",
+            "icon_somo.dds", "icon_somo.dds", "icon_somo.dds", "01.dds", "02.dds", "03.dds", "04.dds",
+            "05.dds", "05.dds", "06.dds", "06.dds", "07.dds", "07.dds", "08.dds", "08.dds", "09.dds",
+            "10.dds", "11.dds", "12.dds", "12.dds", "13.dds", "13.dds", "14.dds", "15.dds", "16.dds",
+            "17.dds", "18.dds", "19.dds", "20.dds", "21.dds", "16.dds", "17.dds", "18.dds", nullptr,
+            "20.dds", "21.dds", nullptr, nullptr, nullptr, nullptr, "32.dds", "33.dds", "34.dds", "35.dds",
+            "36.dds", "31.dds", "32.dds", "33.dds", nullptr, "34.dds", "35.dds", nullptr, "icon_somo.dds",
+            "icon_rapis.dds", "23.dds", "40.dds", nullptr, "icon_somo.dds", "icon_somo2.dds",
+            "icon_somo2.dds", "icon_somo3.dds", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+            nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+            "icon_pet.dds", "icon_Wing.dds", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+            nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+            nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+            "icon_DualLayer.dds",
+        };
 
-        if (type >= 31 && type <= 40)
-        {
-            char fileName[16]{};
-            std::snprintf(fileName, sizeof(fileName), "%d.dds", type);
-            outFileName = fileName;
-            outCols = 4;
-            outRows = 16;
-            outWidth = 128;
-            outHeight = 512;
-            return true;
-        }
+        static_assert(std::size(kAtlasByItemType) == 151);
 
-        switch (type)
+        if (type <= 0 || type >= static_cast<int>(std::size(kAtlasByItemType)))
+            return nullptr;
+
+        return kAtlasByItemType[type];
+    }
+
+    bool item_icon_atlas_layout(const std::string& fileName, int& outCols, int& outRows, int& outWidth, int& outHeight)
+    {
+        auto lowerFileName = game_data::lower_ascii(fileName);
+        if (lowerFileName == "icon_rapis.dds")
         {
-        case 25:
-        case 26:
-        case 27:
-        case 28:
-        case 29:
-        case 42:
-        case 43:
-        case 44:
-        case 78:
-        case 79:
-        case 80:
-        case 94:
-        case 99:
-            outFileName = "icon_somo.dds";
-            outCols = 16;
-            outRows = 16;
-            outWidth = 512;
-            outHeight = 512;
-            return true;
-        case 30:
-        case 95:
-            outFileName = "icon_rapis.dds";
             outCols = 8;
             outRows = 16;
             outWidth = 256;
             outHeight = 512;
             return true;
-        case 150:
-            outFileName = "icon_DualLayer.dds";
-            outCols = 16;
-            outRows = 16;
-            outWidth = 512;
-            outHeight = 512;
-            return true;
-        case 100:
-        case 101:
-        case 102:
-        case 103:
-            outFileName = "icon_somo2.dds";
-            outCols = 16;
-            outRows = 16;
-            outWidth = 512;
-            outHeight = 512;
-            return true;
-        default:
-            return false;
         }
-    }
 
-    int get_item_icon_atlas_resource_id(const std::string& fileName)
-    {
-        if (fileName.size() == 6 && fileName[2] == '.' && _stricmp(fileName.c_str() + 2, ".dds") == 0)
+        if (lowerFileName == "icon_pet.dds"
+            || lowerFileName == "icon_wing.dds"
+            || lowerFileName == "icon_duallayer.dds")
         {
-            auto type = (fileName[0] - '0') * 10 + (fileName[1] - '0');
-            if (type >= 1 && type <= 24)
-                return IDR_ITEM_ICON_01 + type - 1;
-            if (type >= 31 && type <= 40)
-                return IDR_ITEM_ICON_31 + type - 31;
+            outCols = 16;
+            outRows = 8;
+            outWidth = 512;
+            outHeight = 256;
+            return true;
         }
 
-        if (_stricmp(fileName.c_str(), "icon_DualLayer.dds") == 0)
-            return IDR_ITEM_ICON_DUALLAYER;
-        if (_stricmp(fileName.c_str(), "icon_pet.dds") == 0)
-            return IDR_ITEM_ICON_PET;
-        if (_stricmp(fileName.c_str(), "icon_rapis.dds") == 0)
-            return IDR_ITEM_ICON_RAPIS;
-        if (_stricmp(fileName.c_str(), "icon_somo.dds") == 0)
-            return IDR_ITEM_ICON_SOMO;
-        if (_stricmp(fileName.c_str(), "icon_somo2.dds") == 0)
-            return IDR_ITEM_ICON_SOMO2;
-        if (_stricmp(fileName.c_str(), "icon_Wing.dds") == 0)
-            return IDR_ITEM_ICON_WING;
+        if (lowerFileName == "icon_somo.dds"
+            || lowerFileName == "icon_somo2.dds"
+            || lowerFileName == "icon_somo3.dds")
+        {
+            outCols = 16;
+            outRows = 16;
+            outWidth = 512;
+            outHeight = 512;
+            return true;
+        }
 
-        return 0;
+        if (lowerFileName.size() > 4 && lowerFileName.ends_with(".dds"))
+        {
+            outCols = 4;
+            outRows = 16;
+            outWidth = 128;
+            outHeight = 512;
+            return true;
+        }
+
+        return false;
     }
 
-    LPDIRECT3DTEXTURE9 load_item_icon_resource_texture(const std::string& fileName)
+    bool get_item_icon_atlas_config(int type, std::string& outFileName, int& outCols, int& outRows, int& outWidth, int& outHeight)
     {
-        if (!g_device)
+        auto* fileName = item_icon_atlas_file_for_type(type);
+        if (!fileName)
+            return false;
+
+        outFileName = fileName;
+        return item_icon_atlas_layout(outFileName, outCols, outRows, outWidth, outHeight);
+    }
+
+    LPDIRECT3DTEXTURE9 load_item_icon_game_data_texture(const std::string& fileName, int width, int height)
+    {
+        if (fileName.empty())
             return nullptr;
 
-        auto resourceId = get_item_icon_atlas_resource_id(fileName);
-        if (!resourceId)
+        ensure_client_icon_atlas_index();
+        auto found = g_clientIconAtlasFiles.find(game_data::lower_ascii(fileName));
+        if (found != g_clientIconAtlasFiles.end() && found->second.size > 0 && found->second.size <= UINT_MAX)
+        {
+            std::vector<char> fileData;
+            if (game_data::read_saf_file(found->second.offset, found->second.size, fileData))
+                return create_texture_from_image_memory(g_device, fileData.data(), static_cast<UINT>(fileData.size()));
+        }
+
+        CTexture texture{};
+        if (!CTexture::CreateFromFile(&texture, get_native_item_icon_folder(), fileName.c_str(), width, height))
             return nullptr;
 
-        auto module = GetModuleHandleA("sdev.dll");
-        if (!module)
-            module = GetModuleHandleA(nullptr);
-
-        auto resource = FindResourceA(module, MAKEINTRESOURCEA(resourceId), MAKEINTRESOURCEA(10));
-        if (!resource)
-            return nullptr;
-
-        auto resourceHandle = LoadResource(module, resource);
-        auto resourceData = resourceHandle ? LockResource(resourceHandle) : nullptr;
-        auto resourceSize = SizeofResource(module, resource);
-        if (!resourceData || !resourceSize)
-            return nullptr;
-
-        return create_texture_from_image_memory(g_device, resourceData, resourceSize);
+        return texture.texture;
     }
 
     LPDIRECT3DTEXTURE9 get_or_load_item_icon_atlas_texture(const std::string& fileName, int width, int height)
@@ -212,7 +227,7 @@ namespace imgui_layer {
         if (!entry.loadAttempted)
         {
             entry.loadAttempted = true;
-            entry.texture = load_item_icon_resource_texture(fileName);
+            entry.texture = load_item_icon_game_data_texture(fileName, width, height);
         }
 
         return entry.texture;

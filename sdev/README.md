@@ -118,7 +118,8 @@ Server-side anticheat module configured via `Data/EtainShield.ini`. Each protect
 - Uses Ultimate Mode stat and skill-point growth paths for every mode.
 - Gives five skill points per level through the patched growth branches.
 - Prevents stat/skill reset items from clearing potential skills when reset is disabled.
-- Shortens the ress-leader gameplay timer from 30 seconds to 5 seconds.
+- Shortens the leader resurrection gameplay timer from 30 seconds to 5 seconds.
+- **UM chars can ress leader**: allows Ultimate Mode/Grow 3 characters to use party-leader resurrection while preserving the stock party, leader-alive, same-zone, and map validation checks.
 - Shortens logout/game-over timing to match the client countdown.
 - Revives players with max HP, MP, and SP.
 - Allows running while stealthed.

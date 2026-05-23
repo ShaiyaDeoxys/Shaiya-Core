@@ -1,8 +1,10 @@
 #include "include/imgui_layer_internal.h"
+#include "include/game_data_archive.h"
+#include "include/game_addresses.h"
 #include <external/stb/stb_image.h>
 #pragma comment(lib, "gdiplus.lib")
 
-#include "include/debug_panel.h"
+#include "include/custom_chat.h"
 #include <util/util.h>
 
 void naked_chat_add_token_filter();
@@ -116,68 +118,12 @@ namespace imgui_layer
 
     const std::string& get_game_base_dir()
     {
-        static std::string baseDir = []() -> std::string {
-            char modulePath[MAX_PATH]{};
-            if (GetModuleFileNameA(nullptr, modulePath, sizeof(modulePath)) == 0)
-                return ".\\";
-            std::string p(modulePath);
-            auto slash = p.find_last_of("\\/");
-            if (slash == std::string::npos)
-                return ".\\";
-            p.resize(slash + 1);
-            return p;
-        }();
-        return baseDir;
+        return game_data::base_dir();
     }
 
     std::string get_game_relative_path(const char* relativePath)
     {
-        auto path = get_game_base_dir();
-        if (relativePath)
-            path += relativePath;
-        return path;
-    }
-
-    std::string to_lower_ascii(std::string value)
-    {
-        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
-            return static_cast<char>(std::tolower(ch));
-        });
-        return value;
-    }
-
-    bool read_sah_u32(const std::vector<char>& data, std::size_t& offset, uint32_t& value)
-    {
-        if (offset + sizeof(value) > data.size())
-            return false;
-
-        std::memcpy(&value, data.data() + offset, sizeof(value));
-        offset += sizeof(value);
-        return true;
-    }
-
-    bool read_sah_u64(const std::vector<char>& data, std::size_t& offset, uint64_t& value)
-    {
-        if (offset + sizeof(value) > data.size())
-            return false;
-
-        std::memcpy(&value, data.data() + offset, sizeof(value));
-        offset += sizeof(value);
-        return true;
-    }
-
-    bool read_sah_string(const std::vector<char>& data, std::size_t& offset, std::string& value)
-    {
-        uint32_t length = 0;
-        if (!read_sah_u32(data, offset, length) || offset + length > data.size())
-            return false;
-
-        value.assign(data.data() + offset, data.data() + offset + length);
-        while (!value.empty() && value.back() == '\0')
-            value.pop_back();
-
-        offset += length;
-        return true;
+        return game_data::relative_path(relativePath);
     }
 
     bool parse_visual_token_file_name(const char* fileName, const char* prefix, const char* extension, int& index)
@@ -289,110 +235,64 @@ namespace imgui_layer
         return true;
     }
 
-    bool scan_sah_directory_for_visual_tokens(const std::vector<char>& data, std::size_t& offset, const std::string& parentPath)
-    {
-        std::string name;
-        if (!read_sah_string(data, offset, name))
-            return false;
-
-        auto path = parentPath;
-        if (!name.empty())
-            path = path.empty() ? name : path + "\\" + name;
-
-        uint32_t fileCount = 0;
-        if (!read_sah_u32(data, offset, fileCount))
-            return false;
-
-        auto lowerPath = to_lower_ascii(path);
-        for (uint32_t i = 0; i < fileCount; ++i)
-        {
-            std::string fileName;
-            uint64_t fileOffset = 0;
-            uint64_t fileSize = 0;
-            if (!read_sah_string(data, offset, fileName)
-                || !read_sah_u64(data, offset, fileOffset)
-                || !read_sah_u64(data, offset, fileSize))
-            {
-                return false;
-            }
-
-            if (is_sah_visual_token_folder(lowerPath, VisualTokenKind::Emoji))
-            {
-                try_add_visual_token_from_sah_file(VisualTokenKind::Emoji, fileName, fileOffset, fileSize);
-            }
-            else if (is_sah_visual_token_folder(lowerPath, VisualTokenKind::Gif))
-            {
-                try_add_visual_token_from_sah_file(VisualTokenKind::Gif, fileName, fileOffset, fileSize);
-            }
-            else if (is_sah_general_folder(lowerPath))
-            {
-                // Roulette background PNG lives in Assets/General.
-                auto lowerFileName = to_lower_ascii(fileName);
-                if (lowerFileName == "roulette.png" && !g_rouletteBgFound)
-                {
-                    g_rouletteBgFound = true;
-                    g_rouletteBgDataOffset = fileOffset;
-                    g_rouletteBgDataSize = fileSize;
-                }
-                else if (lowerFileName == "rewardicon.png" && !g_rewardIconFound)
-                {
-                    g_rewardIconFound = true;
-                    g_rewardIconDataOffset = fileOffset;
-                    g_rewardIconDataSize = fileSize;
-                }
-                else if (lowerFileName == "rouletteicon.png" && !g_rouletteIconFound)
-                {
-                    g_rouletteIconFound = true;
-                    g_rouletteIconDataOffset = fileOffset;
-                    g_rouletteIconDataSize = fileSize;
-                }
-                else if (lowerFileName == "settingsicon.png" && !g_settingsIconFound)
-                {
-                    g_settingsIconFound = true;
-                    g_settingsIconDataOffset = fileOffset;
-                    g_settingsIconDataSize = fileSize;
-                }
-                else if (lowerFileName == "npcicon.png" && !g_npcIconFound)
-                {
-                    g_npcIconFound = true;
-                    g_npcIconDataOffset = fileOffset;
-                    g_npcIconDataSize = fileSize;
-                }
-            }
-        }
-
-        uint32_t directoryCount = 0;
-        if (!read_sah_u32(data, offset, directoryCount))
-            return false;
-
-        for (uint32_t i = 0; i < directoryCount; ++i)
-        {
-            if (!scan_sah_directory_for_visual_tokens(data, offset, path))
-                return false;
-        }
-
-        return true;
-    }
-
     void ensure_emoji_catalog_loaded()
     {
         if (g_emojiCatalogLoaded)
             return;
 
         g_emojiCatalogLoaded = true;
-        auto sahPath = get_game_relative_path("data.sah");
-        std::ifstream stream(sahPath, std::ios::binary);
-        if (!stream)
-            return;
-
-        std::vector<char> data(
-            (std::istreambuf_iterator<char>(stream)),
-            std::istreambuf_iterator<char>());
-        if (data.size() <= 0x34 || std::memcmp(data.data(), "SAH", 3) != 0)
-            return;
-
-        auto offset = std::size_t{ 0x34 };
-        scan_sah_directory_for_visual_tokens(data, offset, "");
+        game_data::scan_sah_files([](const game_data::SahFileEntry& entry) {
+            if (is_sah_visual_token_folder(entry.lowerPath, VisualTokenKind::Emoji))
+            {
+                try_add_visual_token_from_sah_file(
+                    VisualTokenKind::Emoji,
+                    entry.fileName,
+                    entry.offset,
+                    entry.size);
+            }
+            else if (is_sah_visual_token_folder(entry.lowerPath, VisualTokenKind::Gif))
+            {
+                try_add_visual_token_from_sah_file(
+                    VisualTokenKind::Gif,
+                    entry.fileName,
+                    entry.offset,
+                    entry.size);
+            }
+            else if (is_sah_general_folder(entry.lowerPath))
+            {
+                // Shared overlay icons live in Assets/General.
+                if (entry.lowerFileName == "roulette.png" && !g_rouletteBgFound)
+                {
+                    g_rouletteBgFound = true;
+                    g_rouletteBgDataOffset = entry.offset;
+                    g_rouletteBgDataSize = entry.size;
+                }
+                else if (entry.lowerFileName == "rewardicon.png" && !g_rewardIconFound)
+                {
+                    g_rewardIconFound = true;
+                    g_rewardIconDataOffset = entry.offset;
+                    g_rewardIconDataSize = entry.size;
+                }
+                else if (entry.lowerFileName == "rouletteicon.png" && !g_rouletteIconFound)
+                {
+                    g_rouletteIconFound = true;
+                    g_rouletteIconDataOffset = entry.offset;
+                    g_rouletteIconDataSize = entry.size;
+                }
+                else if (entry.lowerFileName == "settingsicon.png" && !g_settingsIconFound)
+                {
+                    g_settingsIconFound = true;
+                    g_settingsIconDataOffset = entry.offset;
+                    g_settingsIconDataSize = entry.size;
+                }
+                else if (entry.lowerFileName == "npcicon.png" && !g_npcIconFound)
+                {
+                    g_npcIconFound = true;
+                    g_npcIconDataOffset = entry.offset;
+                    g_npcIconDataSize = entry.size;
+                }
+            }
+        });
 
         std::sort(g_emojis.begin(), g_emojis.end(), [](const EmojiEntry& lhs, const EmojiEntry& rhs) {
             if (lhs.kind != rhs.kind)
@@ -417,21 +317,7 @@ namespace imgui_layer
 
     bool read_client_data_file(const EmojiEntry& emoji, std::vector<char>& fileData)
     {
-        if (emoji.dataSize == 0 || emoji.dataSize > UINT_MAX)
-            return false;
-
-        auto safPath = get_game_relative_path("data.saf");
-        std::ifstream stream(safPath, std::ios::binary);
-        if (!stream)
-            return false;
-
-        stream.seekg(static_cast<std::streamoff>(emoji.dataOffset), std::ios::beg);
-        if (!stream)
-            return false;
-
-        fileData.assign(static_cast<std::size_t>(emoji.dataSize), 0);
-        stream.read(fileData.data(), static_cast<std::streamsize>(fileData.size()));
-        return stream.gcount() == static_cast<std::streamsize>(fileData.size());
+        return game_data::read_saf_file(emoji.dataOffset, emoji.dataSize, fileData);
     }
 
     LPDIRECT3DTEXTURE9 load_png_texture(EmojiEntry& emoji)
@@ -452,7 +338,7 @@ namespace imgui_layer
             return texture;
         loadAttempted = true;
 
-        if (!found || size == 0 || size > UINT_MAX)
+        if (!found)
             return nullptr;
 
         if (!g_device)
@@ -461,18 +347,8 @@ namespace imgui_layer
             return nullptr;
         }
 
-        auto safPath = get_game_relative_path("data.saf");
-        std::ifstream stream(safPath, std::ios::binary);
-        if (!stream)
-            return nullptr;
-
-        stream.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
-        if (!stream)
-            return nullptr;
-
-        std::vector<char> fileData(static_cast<std::size_t>(size), 0);
-        stream.read(fileData.data(), static_cast<std::streamsize>(fileData.size()));
-        if (stream.gcount() != static_cast<std::streamsize>(fileData.size()))
+        std::vector<char> fileData;
+        if (!game_data::read_saf_file(offset, size, fileData))
             return nullptr;
 
         texture = create_texture_from_image_memory(g_device, fileData.data(), static_cast<UINT>(fileData.size()));
@@ -791,6 +667,52 @@ namespace imgui_layer
         return chatType >= 0 && chatType <= 50;
     }
 
+    bool get_native_chat_emoji_button_position(ImVec2& out, const ImVec2& buttonSize, const ImVec2& displaySize)
+    {
+        if (!g_chatPanelPtr)
+            return false;
+
+        auto fields = reinterpret_cast<const unsigned*>(g_chatPanelPtr);
+        auto baseX = static_cast<float>(fields[1]);
+        auto baseY = static_cast<float>(fields[2]);
+        auto upperSz = *reinterpret_cast<const unsigned char*>(g_chatPanelPtr + 0x3B4);
+        auto lowerSz = *reinterpret_cast<const unsigned char*>(g_chatPanelPtr + 0x3CC);
+
+        auto upperH = static_cast<float>(upperSz + 2) * 16.0f;
+        auto lowerFirstLineY = baseY + 0x5e + upperH + static_cast<float>(lowerSz) * 16.0f;
+
+        // Native lower chat input/status controls sit just below the rendered
+        // lower message stack.  Anchor the picker button to the lower-right
+        // control corner, so resolution changes and native vertical chat resize
+        // move it together with the chat UI.
+        out = ImVec2(baseX + 0x161 - buttonSize.x - 1.0f, lowerFirstLineY - 3.0f);
+        out = clamp_window_position(out, buttonSize, displaySize);
+        return true;
+    }
+
+    ImVec2 get_emoji_picker_position_from_button(
+        const ImVec2& buttonPosition,
+        const ImVec2& buttonSize,
+        const ImVec2& pickerSize,
+        const ImVec2& displaySize)
+    {
+        auto pos = ImVec2(
+            buttonPosition.x + buttonSize.x + 8.0f,
+            buttonPosition.y + buttonSize.y - pickerSize.y);
+
+        return clamp_window_position(pos, pickerSize, displaySize);
+    }
+
+    bool is_native_screen_notice_chat_type(int chatType)
+    {
+        // These types use the chat insertion path but also drive native
+        // on-screen notice/raid-style text.  Returning an empty string for
+        // them hides the notice payload and leaves the game with a tiny blank
+        // balloon, so CUSTOMCHAT only suppresses regular upper/lower chat box
+        // text and lets these native presentation paths keep their message.
+        return (chatType >= 23 && chatType <= 33) || chatType == 48 || chatType == 50;
+    }
+
     static float measure_chat_prefix_width_fallback(const char* text, int len)
     {
         auto w = 0.0f;
@@ -806,17 +728,17 @@ namespace imgui_layer
 
         // Guard: only call the native measure function when the game is
         // fully loaded — avoids intermittent crash at startup when the
-        // text-measure object at 0x22B69B0 isn't initialised yet.
+        // The native text-measure object is not initialized during startup.
         if (!is_game_scene())
             return measure_chat_prefix_width_fallback(prefix.c_str(), static_cast<int>(prefix.size()));
 
         using MeasureTextWidth = int(__thiscall*)(void*, const char*, int, int);
-        auto measureTextWidth = reinterpret_cast<MeasureTextWidth>(0x575740);
+        auto measureTextWidth = reinterpret_cast<MeasureTextWidth>(game_addr::TextMeasureWidth);
 
         __try
         {
             auto width = measureTextWidth(
-                reinterpret_cast<void*>(0x22B69B0),
+                reinterpret_cast<void*>(game_addr::TextMeasureObject),
                 prefix.c_str(),
                 static_cast<int>(prefix.size()),
                 0);
@@ -877,8 +799,6 @@ namespace imgui_layer
 
     float get_chat_text_width()
     {
-        if (g_chatTextWidthOverride > 0.0f)
-            return g_chatTextWidthOverride;
         if (!g_var) return 200.0f;
         auto clientW = static_cast<float>(g_var->client.width);
         auto w = clientW * g_tune.chatRightPct - g_tune.chatTextX - 20.0f;
@@ -979,13 +899,10 @@ namespace imgui_layer
     const char* __cdecl prepare_chat_text_for_emojis(int chatType, const char* text)
     {
         // Record every chat type for the GM debug panel
-        debug_panel::record_chat_type(chatType, text);
+        custom_chat::record_chat_type(chatType, text);
 
         if (!text || text[0] == '\0')
             return text;
-
-        if (debug_panel::hide_native_chat_visuals())
-            return "";
 
         ChatEmojiLineOverlay line{};
         auto changed = sanitize_visual_tokens(text, g_sanitizedChatText, line, 5);
@@ -1142,6 +1059,7 @@ namespace imgui_layer
         std::lock_guard<std::mutex> lock(g_floatingEmojiMutex);
         g_floatingEmojiRenders.push_back({
             GetTickCount(),
+            nullptr,
             x,
             y,
             true,
@@ -1169,17 +1087,31 @@ namespace imgui_layer
         auto now = GetTickCount();
         for (auto& render : g_floatingEmojiRenders)
         {
-            if (render.tick == now
-                && render.x == x
-                && render.y == y
-                && render.tokens.size() == line->second.tokens.size())
+            if (render.tick == now && render.source == staticText)
             {
+                // Native floating/static text is often drawn several times in
+                // one frame for outlines/shadows.  Keep one emoji pass per
+                // text object; otherwise the images stack with tiny offsets and
+                // look like they are smearing while the actor/camera moves.
                 return;
             }
         }
 
+        // Keep only the latest frame for each floating text object.  Retaining
+        // the previous 1-2 frames makes images appear to trail behind moving
+        // chat balloons, especially for animated GIF tokens.
+        g_floatingEmojiRenders.erase(
+            std::remove_if(
+                g_floatingEmojiRenders.begin(),
+                g_floatingEmojiRenders.end(),
+                [staticText](const FloatingEmojiRenderOverlay& render) {
+                    return render.source == staticText;
+                }),
+            g_floatingEmojiRenders.end());
+
         g_floatingEmojiRenders.push_back({
             now,
+            staticText,
             x,
             y,
             lowerChat,
@@ -1284,6 +1216,8 @@ namespace imgui_layer
         if (!g_var || !is_game_scene())
             return;
         if (is_emoji_transition_grace_active())
+            return;
+        if (custom_chat::hide_native_chat_visuals())
             return;
 
         auto drawList = ImGui::GetBackgroundDrawList();
@@ -1677,30 +1611,6 @@ namespace imgui_layer
         if (changed)
             save_imgui_settings();
 
-        // Reposition controls
-        if (g_emojiRepositionMode)
-        {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.35f, 0.1f, 0.9f));
-            if (ImGui::Button("Click anywhere to place", ImVec2(-1.0f, 0.0f)))
-                g_emojiRepositionMode = false;
-            ImGui::PopStyleColor();
-        }
-        else
-        {
-            auto availW = ImGui::GetContentRegionAvail().x;
-            auto spacing = ImGui::GetStyle().ItemSpacing.x;
-            auto btnW = (availW - spacing) * 0.5f;
-            if (ImGui::Button("Move", ImVec2(btnW, 0.0f)))
-                g_emojiRepositionMode = true;
-            ImGui::SameLine();
-            if (ImGui::Button("Reset", ImVec2(btnW, 0.0f)))
-            {
-                g_emojiButtonPosition = kDefaultEmojiButtonPosition;
-                g_emojiRepositionMode = false;
-                save_imgui_settings();
-            }
-        }
-
         ImGui::Separator();
     }
 
@@ -1718,27 +1628,8 @@ namespace imgui_layer
             return;
 
         auto buttonSize = kEmojiButtonSize;
-        g_emojiButtonPosition = clamp_window_position(g_emojiButtonPosition, buttonSize, io.DisplaySize);
-
-        // In reposition mode the button follows the cursor until clicked
-        if (g_emojiRepositionMode)
-        {
-            auto hasMousePos = io.MousePos.x >= 0.0f && io.MousePos.y >= 0.0f;
-            if (hasMousePos)
-            {
-                auto newPos = ImVec2(io.MousePos.x - buttonSize.x * 0.5f,
-                                     io.MousePos.y - buttonSize.y * 0.5f);
-                g_emojiButtonPosition = clamp_window_position(newPos, buttonSize, io.DisplaySize);
-            }
-
-            // Click anywhere (outside the picker) to confirm placement
-            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)
-                && !is_cursor_in_rect(g_emojiPickerRect))
-            {
-                g_emojiRepositionMode = false;
-                save_imgui_settings();
-            }
-        }
+        if (!get_native_chat_emoji_button_position(g_emojiButtonPosition, buttonSize, io.DisplaySize))
+            g_emojiButtonPosition = clamp_window_position(g_emojiButtonPosition, buttonSize, io.DisplaySize);
 
         ImGui::SetNextWindowPos(g_emojiButtonPosition, ImGuiCond_Always);
         ImGui::SetNextWindowBgAlpha(0.0f);
@@ -1758,16 +1649,14 @@ namespace imgui_layer
         auto min = ImGui::GetItemRectMin();
         auto max = ImGui::GetItemRectMax();
         remember_rect(g_emojiButtonRect, min, max);
-        if (!g_emojiRepositionMode)
-            handle_emoji_button_interaction();
+        handle_emoji_button_interaction();
 
-        draw_emoji_fallback(min, max,
-            g_emojiRepositionMode ? IM_COL32(28, 23, 18, 255) : IM_COL32(246, 199, 63, 255));
+        draw_emoji_fallback(min, max, IM_COL32(246, 199, 63, 255));
         if (ImGui::IsItemHovered() || is_cursor_in_rect(g_emojiButtonRect))
         {
             ImGui::SetNextWindowPos(ImVec2(min.x - 2.0f, min.y - 24.0f), ImGuiCond_Always);
             ImGui::BeginTooltip();
-            ImGui::TextUnformatted(g_emojiRepositionMode ? "Click to place here" : "Open emojis");
+            ImGui::TextUnformatted("Open emojis");
             ImGui::EndTooltip();
         }
 
@@ -1778,10 +1667,11 @@ namespace imgui_layer
             return;
 
         auto pickerSize = kEmojiPickerSize;
-        g_emojiPickerPosition = clamp_window_position(
-            ImVec2(g_emojiButtonPosition.x + kEmojiPickerOffset.x,
-                   g_emojiButtonPosition.y + kEmojiPickerOffset.y),
-            pickerSize, io.DisplaySize);
+        g_emojiPickerPosition = get_emoji_picker_position_from_button(
+            g_emojiButtonPosition,
+            buttonSize,
+            pickerSize,
+            io.DisplaySize);
 
         ImGui::SetNextWindowPos(g_emojiPickerPosition, ImGuiCond_Always);
         ImGui::SetNextWindowSize(pickerSize, ImGuiCond_Always);
@@ -1867,14 +1757,14 @@ namespace imgui_layer
         if (g_chatEmojiHookInstalled)
             return;
 
-        util::detour((void*)0x422B90, naked_chat_add_token_filter, 6);
-        patch_call((void*)0x412744, naked_chat_balloon_text_create);
-        util::detour((void*)0x41274D, naked_capture_chat_balloon_text, 6);
-        patch_call((void*)0x453DEF, naked_floating_text_create);
-        util::detour((void*)0x453DF4, naked_capture_floating_static_text, 9);
-        patch_calls_to(0x57C280, naked_static_text_create);
-        patch_calls_to(0x57CA20, naked_floating_static_text_draw);
-        patch_calls_to(0x573C00, naked_native_text_draw_probe);
+        util::detour((void*)game_addr::ChatTextFilter, naked_chat_add_token_filter, 6);
+        patch_call((void*)game_addr::ChatBalloonCreateCall, naked_chat_balloon_text_create);
+        util::detour((void*)game_addr::ChatBalloonCapture, naked_capture_chat_balloon_text, 6);
+        patch_call((void*)game_addr::FloatingTextCreateCall, naked_floating_text_create);
+        util::detour((void*)game_addr::FloatingStaticTextCapture, naked_capture_floating_static_text, 9);
+        patch_calls_to(game_addr::StaticTextCreate, naked_static_text_create);
+        patch_calls_to(game_addr::FloatingStaticTextDraw, naked_floating_static_text_draw);
+        patch_calls_to(game_addr::NativeTextDraw, naked_native_text_draw_probe);
 
         g_chatEmojiHookInstalled = true;
     }

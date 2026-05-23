@@ -55,7 +55,7 @@ Client module:
 .\build-client.cmd
 ```
 
-`build-client.cmd` wraps the standard Release|x86 client build and restores the DirectX SDK package dependency used by the client project. Build outputs are ignored by git. Public releases should be built from a clean checkout and tested against the matching binaries.
+`build-client.cmd` and `build-client.ps1` wrap the standard client build. The PowerShell wrapper accepts `-Configuration Debug|Release` and `-Target Build|Rebuild|Clean`; by default it builds `sdev-client` as Release|x86. Build outputs are ignored by git. Public releases should be built from a clean checkout and tested against the matching binaries.
 
 ## Configuration
 

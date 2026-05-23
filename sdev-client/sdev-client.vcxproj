@@ -13,7 +13,11 @@
   <ItemGroup>
     <ClInclude Include="include\main.h" />
     <ClInclude Include="src\include\config.h" />
+    <ClInclude Include="src\include\custom_chat.h" />
     <ClInclude Include="src\include\debug_panel.h" />
+    <ClInclude Include="src\include\speed_monitor.h" />
+    <ClInclude Include="src\include\game_data_archive.h" />
+    <ClInclude Include="src\include\game_addresses.h" />
     <ClInclude Include="src\include\imgui_layer_internal.h" />
     <ClInclude Include="src\include\ep4_ui.h" />
     <ClInclude Include="src\include\stat_color.h" />
@@ -76,6 +80,7 @@
     <ClInclude Include="include\shaiya\LoginVersion.h" />
     <ClInclude Include="include\shaiya\MeshFace.h" />
     <ClInclude Include="include\shaiya\MobInfo.h" />
+    <ClInclude Include="include\shaiya\ProductInfo.h" />
     <ClInclude Include="include\shaiya\RewardItem.h" />
     <ClInclude Include="include\shaiya\SAes.h" />
     <ClInclude Include="include\shaiya\SBoxAxis.h" />
@@ -125,6 +130,7 @@
     <ClCompile Include="src\character.cpp" />
     <ClCompile Include="src\command.cpp" />
     <ClCompile Include="src\config.cpp" />
+    <ClCompile Include="src\custom_chat.cpp" />
     <ClCompile Include="src\custom_game.cpp" />
     <ClCompile Include="src\discord.cpp" />
     <ClCompile Include="src\dllmain.cpp" />
@@ -133,9 +139,9 @@
     <ClCompile Include="src\stat_color.cpp" />
     <ClCompile Include="src\ep6_repo_features.cpp" />
     <ClCompile Include="src\exp_view.cpp" />
+    <ClCompile Include="src\game_data_archive.cpp" />
     <ClCompile Include="src\imgui_layer.cpp" />
     <ClCompile Include="src\imgui_layer_asm.cpp" />
-    <ClCompile Include="src\imgui_layer_chatoptions.cpp" />
     <ClCompile Include="src\imgui_layer_emoji.cpp" />
     <ClCompile Include="src\imgui_layer_items.cpp" />
     <ClCompile Include="src\imgui_layer_roulette.cpp" />
@@ -159,6 +165,7 @@
     <ClCompile Include="src\ui_image.cpp" />
     <ClCompile Include="src\unicode.cpp" />
     <ClCompile Include="src\debug_panel.cpp" />
+    <ClCompile Include="src\speed_monitor.cpp" />
     <ClCompile Include="src\stb_image_impl.cpp" />
     <ClCompile Include="src\vehicle.cpp" />
     <ClCompile Include="src\weapon_step.cpp" />

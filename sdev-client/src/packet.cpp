@@ -504,6 +504,8 @@ void __declspec(naked) naked_0x5F1E10()
         pushad
 
         movzx eax,word ptr [esp+0x24]
+
+        // --- Roulette / Reward Item (game phase) ---
         cmp eax,0x834
         je roulette_packet
         cmp eax,0x835

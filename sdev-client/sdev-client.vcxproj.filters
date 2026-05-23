@@ -149,6 +149,9 @@
     <ClInclude Include="include\shaiya\MobInfo.h">
       <Filter>include\shaiya</Filter>
     </ClInclude>
+    <ClInclude Include="include\shaiya\ProductInfo.h">
+      <Filter>include\shaiya</Filter>
+    </ClInclude>
     <ClInclude Include="include\shaiya\SBoxAxis.h">
       <Filter>include\shaiya</Filter>
     </ClInclude>
@@ -332,6 +335,15 @@
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="src\blacksmith.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\game_data_archive.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\custom_chat.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\speed_monitor.cpp">
       <Filter>src</Filter>
     </ClCompile>
   </ItemGroup>

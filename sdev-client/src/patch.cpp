@@ -1,6 +1,5 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#include <unordered_map>
 #include <util/util.h>
 #include "include/main.h"
 #include "include/shaiya/Static.h"
@@ -24,64 +23,11 @@ namespace
     constexpr std::uint32_t kLoginSplashSkipPostInitDelay = 0x00000000;
     constexpr char kLoginSplashSkipHiddenCopyrightMessage[100] = "";
     constexpr std::int32_t kClientRessLeaderVisualSeconds = 5;
+    constexpr std::uint8_t kForceDeathDialogNonUltimate[] = { 0xE9, 0x84, 0x00, 0x00, 0x00, 0x90 };
     float gLogoutGameOverVisualSeconds = 2.0f;
     constexpr std::int32_t kLoginToCharacterSelectionDelayMs = 1000;
     constexpr std::uint32_t kHiddenLevelUpMessageSize = 0x00000000;
 
-    // -----------------------------------------------------------------------
-    // Subaction message cooldown (sysmsg 5228-5237)
-    // -----------------------------------------------------------------------
-    constexpr bool kEnableSubactionMessageCooldown = true;
-    constexpr std::uint32_t kSubactionMessageCooldownMs = 20000;
-    constexpr std::int32_t kSubactionMessageFirst = 5228;
-    constexpr std::int32_t kSubactionMessageLast = 5237;
-}
-
-int should_suppress_subaction_sysmsg(int messageNumber)
-{
-    if (!kEnableSubactionMessageCooldown)
-        return false;
-
-    if (messageNumber < kSubactionMessageFirst || messageNumber > kSubactionMessageLast)
-        return false;
-
-    const char* playerName = shaiya::g_var->sysmsg_p.data();
-    if (!playerName || !playerName[0])
-        playerName = "<unknown>";
-
-    static std::unordered_map<std::string, std::uint32_t> lastShownByPlayer;
-    auto now = GetTickCount();
-    auto& lastShown = lastShownByPlayer[playerName];
-
-    if (lastShown && now - lastShown < kSubactionMessageCooldownMs)
-        return true;
-
-    lastShown = now;
-    return false;
-}
-
-unsigned u0x423155 = 0x423155;
-void __declspec(naked) naked_sysmsg_to_chatbox_subaction_cooldown()
-{
-    __asm
-    {
-        pushad
-        push dword ptr [esp+0x28] // messageNumber
-        call should_suppress_subaction_sysmsg
-        add esp,0x4
-        test eax,eax
-        popad
-
-        jne suppress
-
-        // original
-        push esi
-        mov esi,dword ptr [esp+0x10]
-        jmp u0x423155
-
-        suppress:
-        ret
-    }
 }
 
 // ===========================================================================
@@ -125,12 +71,6 @@ void hook::patch()
     // Screenshot output format.
     // Rewrites the internal screenshot filename templates from .jpg/.JPG to .png.
     interface_redirect::patch_screenshot_extensions_to_png();
-
-    // Cooldown for subaction messages (20s).
-    // Instead of removing sysmsg 5228-5237 completely, rate-limit the whole
-    // subaction message block to one visible message every 20 seconds per
-    // player name (<p>). Comment this detour out to restore stock behavior.
-    util::detour((void*)0x423150, naked_sysmsg_to_chatbox_subaction_cooldown, 5);
 
     // Skip updater check via CONFIG.ini.
     // ADVANCED -> SKIPUPDATER=1 makes the client see the same "start game"
@@ -189,11 +129,19 @@ void hook::patch()
     // run, advance to the original state-1 transition block instead of drawing
     // the remaining splash frames.
     util::write_memory((void*)0x434A97, kLoginSplashSkipAfterResourceInit, sizeof(kLoginSplashSkipAfterResourceInit));
-    // Ress leader visual timer.
+    // Leader resurrection visual timer.
     // The popup text comes from sysmsg 10068 and its countdown renders using
     // global 007AD434, initialized as 30 seconds at 004D5F41. This is separate
     // from the server-side 5000ms gameplay timer and must be patched in seconds.
     util::write_memory((void*)0x4D5F47, &kClientRessLeaderVisualSeconds, sizeof(kClientRessLeaderVisualSeconds));
+    // UM chars can ress leader: client UI.
+    // 004D5940 builds the death/rebirth dialog. The stock client checks
+    // CPlayerData max grow at 0091346A and routes Grow 3 through a separate
+    // Ultimate-mode dialog that omits the party-leader resurrection option.
+    // Force the dialog creation through the non-Ultimate branch so Grow 3 sees
+    // the same leader-rebirth window as Grow 2. The server remains authoritative
+    // and still validates party, leader status, zone/map, and timer completion.
+    util::write_memory((void*)0x4D5BB4, kForceDeathDialogNonUltimate, sizeof(kForceDeathDialogNonUltimate));
     // Logout/game-over visual countdown.
     // The "x seconds left till game over" text uses sysmsg 10083/10084. The
     // countdown itself is a float copied into global 022B045C at 005223A9 and

@@ -25,6 +25,7 @@
 #include <d3d9.h>
 #include <external/stb/stb_image.h>
 #include <util/util.h>
+#include "include/game_data_archive.h"
 #include "include/main.h"
 #include "include/shaiya/CDataFile.h"
 #include "include/shaiya/CItem.h"
@@ -97,132 +98,29 @@ namespace
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
-    std::string get_game_path(const char* relativePath)
-    {
-        char buf[MAX_PATH]{};
-        if (GetModuleFileNameA(nullptr, buf, sizeof(buf)) == 0)
-            return relativePath ? relativePath : "";
-
-        std::string path(buf);
-        auto slash = path.find_last_of("\\/");
-        if (slash == std::string::npos)
-            return relativePath ? relativePath : "";
-
-        path.resize(slash + 1);
-        if (relativePath)
-            path += relativePath;
-        return path;
-    }
-
-    std::string to_lower(std::string s)
-    {
-        for (auto& c : s)
-            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        return s;
-    }
-
-    // -----------------------------------------------------------------------
-    // SAH parsing
-    // -----------------------------------------------------------------------
-    bool sah_read_u32(const std::vector<char>& d, std::size_t& o, uint32_t& v)
-    {
-        if (o + 4 > d.size()) return false;
-        std::memcpy(&v, d.data() + o, 4); o += 4;
-        return true;
-    }
-
-    bool sah_read_u64(const std::vector<char>& d, std::size_t& o, uint64_t& v)
-    {
-        if (o + 8 > d.size()) return false;
-        std::memcpy(&v, d.data() + o, 8); o += 8;
-        return true;
-    }
-
-    bool sah_read_string(const std::vector<char>& d, std::size_t& o, std::string& v)
-    {
-        uint32_t len = 0;
-        if (!sah_read_u32(d, o, len) || o + len > d.size()) return false;
-        v.assign(d.data() + o, d.data() + o + len);
-        while (!v.empty() && v.back() == '\0') v.pop_back();
-        o += len;
-        return true;
-    }
-
-    bool scan_sah_directory(const std::vector<char>& data, std::size_t& offset,
-                            const std::string& parentPath)
-    {
-        std::string name;
-        if (!sah_read_string(data, offset, name))
-            return false;
-
-        auto path = parentPath;
-        if (!name.empty())
-            path = path.empty() ? name : path + "\\" + name;
-
-        uint32_t fileCount = 0;
-        if (!sah_read_u32(data, offset, fileCount))
-            return false;
-
-        auto lowerPath = to_lower(path);
-        bool isTarget = (lowerPath == kAssetFolder)
-                     || (lowerPath == std::string("data\\") + kAssetFolder);
-
-        for (uint32_t i = 0; i < fileCount; ++i)
-        {
-            std::string fileName;
-            uint64_t fileOffset = 0, fileSize = 0;
-            if (!sah_read_string(data, offset, fileName)
-                || !sah_read_u64(data, offset, fileOffset)
-                || !sah_read_u64(data, offset, fileSize))
-                return false;
-
-            if (isTarget)
-            {
-                auto lowerFile = to_lower(fileName);
-                for (int e = 0; e < kElementCount; ++e)
-                {
-                    if (!g_textures[e].found && lowerFile == kElementFileNames[e])
-                    {
-                        g_textures[e].sahOffset = fileOffset;
-                        g_textures[e].sahSize   = fileSize;
-                        g_textures[e].found     = true;
-                        break;
-                    }
-                }
-            }
-        }
-
-        uint32_t dirCount = 0;
-        if (!sah_read_u32(data, offset, dirCount))
-            return false;
-
-        for (uint32_t i = 0; i < dirCount; ++i)
-        {
-            if (!scan_sah_directory(data, offset, path))
-                return false;
-        }
-        return true;
-    }
-
     void scan_sah()
     {
         if (g_sahScanned)
             return;
         g_sahScanned = true;
 
-        auto sahPath = get_game_path("data.sah");
-        std::ifstream stream(sahPath, std::ios::binary);
-        if (!stream)
-            return;
+        game_data::scan_sah_files([](const game_data::SahFileEntry& entry) {
+            bool isTarget = (entry.lowerPath == kAssetFolder)
+                || (entry.lowerPath == std::string("data\\") + kAssetFolder);
+            if (!isTarget)
+                return;
 
-        std::vector<char> data(
-            (std::istreambuf_iterator<char>(stream)),
-            std::istreambuf_iterator<char>());
-        if (data.size() <= 0x34 || std::memcmp(data.data(), "SAH", 3) != 0)
-            return;
-
-        auto offset = std::size_t{ 0x34 };
-        scan_sah_directory(data, offset, "");
+            for (int e = 0; e < kElementCount; ++e)
+            {
+                if (!g_textures[e].found && entry.lowerFileName == kElementFileNames[e])
+                {
+                    g_textures[e].sahOffset = entry.offset;
+                    g_textures[e].sahSize = entry.size;
+                    g_textures[e].found = true;
+                    break;
+                }
+            }
+        });
     }
 
     // -----------------------------------------------------------------------
@@ -288,18 +186,8 @@ namespace
         if (!et.found || et.sahSize == 0 || !device)
             return;
 
-        auto safPath = get_game_path("data.saf");
-        std::ifstream stream(safPath, std::ios::binary);
-        if (!stream)
-            return;
-
-        stream.seekg(static_cast<std::streamoff>(et.sahOffset), std::ios::beg);
-        if (!stream)
-            return;
-
-        std::vector<char> fileData(static_cast<std::size_t>(et.sahSize), 0);
-        stream.read(fileData.data(), static_cast<std::streamsize>(fileData.size()));
-        if (stream.gcount() != static_cast<std::streamsize>(fileData.size()))
+        std::vector<char> fileData;
+        if (!game_data::read_saf_file(et.sahOffset, et.sahSize, fileData))
             return;
 
         et.texture = create_texture_from_png(device, fileData.data(),

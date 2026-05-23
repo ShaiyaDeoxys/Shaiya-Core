@@ -5,7 +5,15 @@
 #include <cstdint>
 #include <cstring>
 #include <iterator>
+#include <string>
+#include <unordered_set>
+#include "include/game_addresses.h"
 #include "include/main.h"
+#include "include/shaiya/CDataFile.h"
+#include "include/shaiya/ItemInfo.h"
+#include "include/shaiya/MobInfo.h"
+#include "include/shaiya/ProductInfo.h"
+#include "include/shaiya/SkillInfo.h"
 
 // Master toggle for the entire Unicode/UTF-8 feature.
 // Set to false to completely disable Unicode window creation, UTF-8 textbox
@@ -15,7 +23,26 @@ constexpr bool kEnableUnicode = true;
 namespace
 {
     constexpr std::int32_t kUtf8CodePage = CP_UTF8;
+    constexpr std::int32_t kSDataLegacyCodePage = 1252;
     constexpr bool kEnableUnicodeWindowTitleFix = true;
+    constexpr bool kEnableSDataLegacyTextToUtf8 = true;
+    constexpr int kMaxSDataItemType = 150;
+    constexpr int kMaxSDataItemTypeId = 2048;
+    constexpr auto kCDataFileAddress = game_addr::CDataFile;
+    constexpr auto kNpcSkillDataAddress = game_addr::NpcSkillDataFile;
+    constexpr auto kNpcQuestDataAddress = game_addr::NpcQuestData;
+    constexpr auto kCashProductTableAddress = game_addr::CashProductTable;
+    constexpr auto kCashProductCountAddress = game_addr::CashProductCount;
+    constexpr auto kGameAllocatorAddress = game_addr::GameAllocator;
+    constexpr int kMinSDataSkillLevel = 1;
+    constexpr int kMaxSDataSkillLevel = 15;
+    constexpr int kNpcQuestGroupCount = 11;
+    constexpr int kNpcQuestResultTextCount = 3;
+    constexpr int kNpcQuestExtraActionTextCount = 6;
+    constexpr int kNpcQuestExtraRewardTextCount = 4;
+    constexpr int kNpcQuestFixedTextGridSide = 256;
+    constexpr int kNpcQuestFixedTextRecordSize = 0x198;
+    constexpr int kNpcQuestExtraRecordSize = 0x180;
     constexpr wchar_t kDefaultGameWindowTitle[] = L"Shaiya";
     inline HWND g_gameWindowHwnd = nullptr;
     constexpr char kGameWindowClassName[] = "GAME";
@@ -50,6 +77,7 @@ namespace
         LPVOID);
     using SetWindowTextAProc = BOOL(WINAPI*)(HWND, LPCSTR);
     using SendMessageAProc = LRESULT(WINAPI*)(HWND, UINT, WPARAM, LPARAM);
+    using GameAllocProc = void* (__cdecl*)(std::size_t);
 
     RegisterClassExAProc g_originalRegisterClassExA = nullptr;
     CreateWindowExAProc g_originalCreateWindowExA = nullptr;
@@ -57,6 +85,418 @@ namespace
     CreateWindowExWProc g_originalCreateWindowExW = nullptr;
     SetWindowTextAProc g_originalSetWindowTextA = nullptr;
     SendMessageAProc g_originalSendMessageA = nullptr;
+
+    // SData string UTF-8 support
+    //
+    // Game.exe can now render UTF-8 text, but several SData loaders still copy
+    // legacy single-byte strings into runtime structs. Bytes such as CP1252
+    // 0xF1 are invalid UTF-8, so the UTF-8-aware renderer shows '?' even though
+    // the source data is valid. After the native loaders finish, normalize only
+    // loaded SData text fields that contain non-ASCII legacy bytes.
+    //
+    // Already-valid UTF-8 is left untouched, so rebuilt SData files can move to
+    // UTF-8 naturally without requiring a second conversion path.
+    bool has_non_ascii_byte(const char* text)
+    {
+        if (!text)
+            return false;
+
+        for (auto cursor = reinterpret_cast<const unsigned char*>(text); *cursor; ++cursor)
+        {
+            if (*cursor >= 0x80)
+                return true;
+        }
+
+        return false;
+    }
+
+    bool is_valid_utf8(const char* text)
+    {
+        if (!text)
+            return true;
+
+        auto count = MultiByteToWideChar(kUtf8CodePage, MB_ERR_INVALID_CHARS, text, -1, nullptr, 0);
+        return count > 0;
+    }
+
+    char* duplicate_process_string(const char* text, int byteCount)
+    {
+        if (!text || byteCount <= 0)
+            return nullptr;
+
+        // SData destructors free these pointers through the game's allocator,
+        // so replacement strings must be allocated through the same path.
+        auto gameAlloc = reinterpret_cast<GameAllocProc>(kGameAllocatorAddress);
+        auto* memory = static_cast<char*>(gameAlloc(static_cast<std::size_t>(byteCount)));
+        if (!memory)
+            return nullptr;
+
+        std::memcpy(memory, text, static_cast<std::size_t>(byteCount));
+        return memory;
+    }
+
+    bool convert_legacy_sdata_string_to_utf8(char*& text)
+    {
+        if (!text || !has_non_ascii_byte(text) || is_valid_utf8(text))
+            return false;
+
+        auto wideCount = MultiByteToWideChar(kSDataLegacyCodePage, 0, text, -1, nullptr, 0);
+        if (wideCount <= 0)
+            return false;
+
+        std::wstring wideText(static_cast<std::size_t>(wideCount), L'\0');
+        if (MultiByteToWideChar(kSDataLegacyCodePage, 0, text, -1, wideText.data(), wideCount) <= 0)
+            return false;
+
+        auto utf8Count = WideCharToMultiByte(kUtf8CodePage, 0, wideText.c_str(), -1, nullptr, 0, nullptr, nullptr);
+        if (utf8Count <= 0)
+            return false;
+
+        std::string utf8Text(static_cast<std::size_t>(utf8Count), '\0');
+        if (WideCharToMultiByte(kUtf8CodePage, 0, wideText.c_str(), -1, utf8Text.data(), utf8Count, nullptr, nullptr) <= 0)
+            return false;
+
+        auto* replacement = duplicate_process_string(utf8Text.c_str(), utf8Count);
+        if (!replacement)
+            return false;
+
+        text = replacement;
+        return true;
+    }
+
+    bool decode_text_bytes_to_wide(const char* bytes, int byteCount, std::wstring& wideText)
+    {
+        if (!bytes || byteCount <= 0)
+            return false;
+
+        auto codePage = kUtf8CodePage;
+        auto wideCount = MultiByteToWideChar(codePage, MB_ERR_INVALID_CHARS, bytes, byteCount, nullptr, 0);
+        if (wideCount <= 0)
+        {
+            codePage = kSDataLegacyCodePage;
+            wideCount = MultiByteToWideChar(codePage, 0, bytes, byteCount, nullptr, 0);
+        }
+
+        if (wideCount <= 0)
+            return false;
+
+        wideText.assign(static_cast<std::size_t>(wideCount), L'\0');
+        auto flags = codePage == kUtf8CodePage ? MB_ERR_INVALID_CHARS : 0;
+        if (MultiByteToWideChar(codePage, flags, bytes, byteCount, wideText.data(), wideCount) <= 0)
+            return false;
+
+        return true;
+    }
+
+    void convert_legacy_sdata_string_field(std::uint8_t* record, std::ptrdiff_t offset)
+    {
+        if (!record)
+            return;
+
+        auto& text = *reinterpret_cast<char**>(record + offset);
+        convert_legacy_sdata_string_to_utf8(text);
+    }
+
+    void normalize_counted_wide_byte_text(std::uint8_t* record, std::ptrdiff_t countOffset, std::ptrdiff_t textOffset, std::uint32_t maxUnits)
+    {
+        if (!record)
+            return;
+
+        // NpcQuest.SData has fixed-size buffers copied as 2-byte units, but
+        // each unit still contains one original file byte in the low 8 bits.
+        // Convert those byte streams to real UTF-16 in-place for native wide UI.
+        auto& count = *reinterpret_cast<std::uint32_t*>(record + countOffset);
+        if (count == 0 || count > maxUnits)
+            return;
+
+        auto* units = reinterpret_cast<wchar_t*>(record + textOffset);
+        std::string bytes;
+        bytes.reserve(count);
+        bool hasHighByte = false;
+
+        for (std::uint32_t i = 0; i < count; ++i)
+        {
+            auto value = units[i];
+            if (value > 0x00FF)
+                return;
+
+            auto byte = static_cast<char>(value & 0x00FF);
+            bytes.push_back(byte);
+            hasHighByte = hasHighByte || (static_cast<unsigned char>(byte) >= 0x80);
+        }
+
+        if (!hasHighByte)
+            return;
+
+        std::wstring wideText;
+        if (!decode_text_bytes_to_wide(bytes.data(), static_cast<int>(bytes.size()), wideText))
+            return;
+
+        if (wideText.empty() || wideText.size() > count)
+            return;
+
+        std::memset(units, 0, static_cast<std::size_t>(count) * sizeof(wchar_t));
+        std::memcpy(units, wideText.data(), wideText.size() * sizeof(wchar_t));
+        count = static_cast<std::uint32_t>(wideText.size());
+    }
+
+    void normalize_sdata_item_text_to_utf8()
+    {
+        std::unordered_set<shaiya::ItemInfo*> seen;
+
+        // Item.SData: visible item name and item description.
+        for (int type = 1; type <= kMaxSDataItemType; ++type)
+        {
+            for (int typeId = 0; typeId < kMaxSDataItemTypeId; ++typeId)
+            {
+                auto* info = shaiya::CDataFile::GetItemInfo(type, typeId);
+                if (!info || !seen.insert(info).second)
+                    continue;
+
+                convert_legacy_sdata_string_to_utf8(info->name);
+                convert_legacy_sdata_string_to_utf8(info->description);
+            }
+        }
+    }
+
+    void normalize_sdata_monster_text_to_utf8()
+    {
+        auto maxMobId = *reinterpret_cast<const std::uint16_t*>(kCDataFileAddress + 0x14);
+
+        // Monster.SData: only the monster name is visible text in MobInfo.
+        for (int mobId = 0; mobId < maxMobId; ++mobId)
+        {
+            auto* info = shaiya::CDataFile::GetMobInfo(mobId);
+            if (!info)
+                continue;
+
+            convert_legacy_sdata_string_to_utf8(info->name);
+        }
+    }
+
+    void normalize_sdata_skill_text_to_utf8_at(std::uintptr_t dataFileAddress)
+    {
+        std::unordered_set<shaiya::SkillInfo*> seen;
+        auto maxSkillId = *reinterpret_cast<const std::uint16_t*>(dataFileAddress + 0x1C);
+        auto skillTable = *reinterpret_cast<std::uint8_t***>(dataFileAddress + 0x18);
+        if (!skillTable)
+            return;
+
+        // Skill.SData/NpcSkill.SData: skill name and description. Both use the
+        // same native loader and record layout, but player skills live in the
+        // main CDataFile instance while NPC skills live in a second one.
+        for (int skillId = 1; skillId <= maxSkillId; ++skillId)
+        {
+            auto* levelTable = skillTable[skillId - 1];
+            if (!levelTable)
+                continue;
+
+            for (int skillLv = kMinSDataSkillLevel; skillLv <= kMaxSDataSkillLevel; ++skillLv)
+            {
+                auto* info = reinterpret_cast<shaiya::SkillInfo*>(levelTable + (skillLv - 1) * sizeof(shaiya::SkillInfo));
+                if (!info || !seen.insert(info).second)
+                    continue;
+
+                convert_legacy_sdata_string_to_utf8(info->name);
+                convert_legacy_sdata_string_to_utf8(info->description);
+            }
+        }
+    }
+
+    void normalize_sdata_skill_text_to_utf8()
+    {
+        normalize_sdata_skill_text_to_utf8_at(kCDataFileAddress);
+        normalize_sdata_skill_text_to_utf8_at(kNpcSkillDataAddress);
+    }
+
+    shaiya::ProductInfo* cash_product_table()
+    {
+        return *reinterpret_cast<shaiya::ProductInfo**>(kCashProductTableAddress);
+    }
+
+    std::uint16_t cash_product_count()
+    {
+        return *reinterpret_cast<const std::uint16_t*>(kCashProductCountAddress);
+    }
+
+    void normalize_sdata_cash_text_to_utf8()
+    {
+        auto* products = cash_product_table();
+        auto count = cash_product_count();
+        if (!products || !count)
+            return;
+
+        // Cash.SData: product name, description, and product code strings. The
+        // cash UI can read different fields depending on the panel, so normalize
+        // all loader-owned strings and leave numeric metadata alone.
+        for (std::uint16_t i = 0; i < count; ++i)
+        {
+            convert_legacy_sdata_string_to_utf8(products[i].productName);
+            convert_legacy_sdata_string_to_utf8(products[i].description);
+            convert_legacy_sdata_string_to_utf8(products[i].productCode);
+        }
+    }
+
+    void normalize_npc_quest_record_284(std::uint8_t* record)
+    {
+        convert_legacy_sdata_string_field(record, 0x18);
+        convert_legacy_sdata_string_field(record, 0x1C);
+        normalize_counted_wide_byte_text(record, 0x0EC, 0x0F0, 100);
+        normalize_counted_wide_byte_text(record, 0x1B8, 0x1BC, 100);
+    }
+
+    void normalize_npc_quest_record_1fc(std::uint8_t* record)
+    {
+        convert_legacy_sdata_string_field(record, 0x14);
+        convert_legacy_sdata_string_field(record, 0x18);
+
+        for (int i = 0; i < kNpcQuestResultTextCount; ++i)
+            convert_legacy_sdata_string_field(record, 0x2C + i * 0x18);
+
+        normalize_counted_wide_byte_text(record, 0x064, 0x068, 100);
+        normalize_counted_wide_byte_text(record, 0x130, 0x134, 100);
+    }
+
+    void normalize_npc_quest_record_1b4(std::uint8_t* record)
+    {
+        convert_legacy_sdata_string_field(record, 0x14);
+        convert_legacy_sdata_string_field(record, 0x18);
+        normalize_counted_wide_byte_text(record, 0x01C, 0x020, 100);
+        normalize_counted_wide_byte_text(record, 0x0E8, 0x0EC, 100);
+    }
+
+    void normalize_npc_quest_fixed_text_record(std::uint8_t* record)
+    {
+        normalize_counted_wide_byte_text(record, 0x000, 0x004, 100);
+        normalize_counted_wide_byte_text(record, 0x0CC, 0x0D0, 100);
+    }
+
+    void normalize_npc_quest_extra_record(std::uint8_t* record)
+    {
+        convert_legacy_sdata_string_field(record, 0x004);
+        convert_legacy_sdata_string_field(record, 0x008);
+
+        for (int i = 0; i < kNpcQuestExtraActionTextCount; ++i)
+            convert_legacy_sdata_string_field(record, 0x090 + i * 0x2C);
+
+        for (int i = 0; i < kNpcQuestExtraRewardTextCount; ++i)
+            convert_legacy_sdata_string_field(record, 0x170 + i * sizeof(void*));
+    }
+
+    void normalize_sdata_npc_quest_text_to_utf8()
+    {
+        auto base = reinterpret_cast<std::uint8_t*>(kNpcQuestDataAddress);
+
+        // NpcQuest.SData: NPC names, quest labels, quest descriptions, objective
+        // text, result strings, reward strings, and the fixed dialog matrix.
+        // CNPCFile::Load owns several differently-sized tables; the offsets
+        // below mirror that loader. Some fields are allocated as byte strings,
+        // while long quest/dialog text is stored in counted 2-byte buffers.
+        auto count284 = *reinterpret_cast<const std::uint32_t*>(base + 0x04);
+        auto table284 = *reinterpret_cast<std::uint8_t**>(base + 0x08);
+        if (table284)
+        {
+            for (std::uint32_t i = 0; i < count284; ++i)
+                normalize_npc_quest_record_284(table284 + i * 0x284);
+        }
+
+        auto count1fc = *reinterpret_cast<const std::uint32_t*>(base + 0x0C);
+        auto table1fc = *reinterpret_cast<std::uint8_t**>(base + 0x10);
+        if (table1fc)
+        {
+            for (std::uint32_t i = 0; i < count1fc; ++i)
+                normalize_npc_quest_record_1fc(table1fc + i * 0x1FC);
+        }
+
+        for (int group = 0; group < kNpcQuestGroupCount; ++group)
+        {
+            auto count = *reinterpret_cast<const std::uint32_t*>(base + 0x14 + group * sizeof(std::uint32_t));
+            auto table = *reinterpret_cast<std::uint8_t**>(base + 0x4C + group * sizeof(void*));
+            if (!table)
+                continue;
+
+            for (std::uint32_t i = 0; i < count; ++i)
+                normalize_npc_quest_record_1b4(table + i * 0x1B4);
+        }
+
+        auto* fixedText = base + 0x8C;
+        for (int i = 0; i < kNpcQuestFixedTextGridSide * kNpcQuestFixedTextGridSide; ++i)
+            normalize_npc_quest_fixed_text_record(fixedText + i * kNpcQuestFixedTextRecordSize);
+
+        // The tail of NpcQuest.SData is delegated by the native loader to an
+        // internal table builder at 0x4896C0. It stores additional quest-facing
+        // labels, descriptions, and reward/action strings at +0x84/+0x88.
+        auto extraCount = *reinterpret_cast<const std::uint32_t*>(base + 0x84);
+        auto extraTable = *reinterpret_cast<std::uint8_t**>(base + 0x88);
+        if (extraTable)
+        {
+            for (std::uint32_t i = 0; i < extraCount; ++i)
+                normalize_npc_quest_extra_record(extraTable + i * kNpcQuestExtraRecordSize);
+        }
+    }
+
+    void normalize_sdata_text_to_utf8()
+    {
+        if (!kEnableSDataLegacyTextToUtf8)
+            return;
+
+        normalize_sdata_item_text_to_utf8();
+        normalize_sdata_monster_text_to_utf8();
+        normalize_sdata_skill_text_to_utf8();
+        normalize_sdata_cash_text_to_utf8();
+        normalize_sdata_npc_quest_text_to_utf8();
+    }
+
+    bool is_sdata_text_ready()
+    {
+        if (!shaiya::CDataFile::GetItemInfo(1, 1))
+            return false;
+
+        if (!cash_product_table() || cash_product_count() == 0)
+            return false;
+
+        if (!shaiya::CDataFile::GetMobInfo(0))
+            return false;
+
+        if (*reinterpret_cast<const std::uint32_t*>(kNpcQuestDataAddress + 0x04) == 0
+            || !*reinterpret_cast<void**>(kNpcQuestDataAddress + 0x08))
+            return false;
+
+        auto playerMaxSkillId = *reinterpret_cast<const std::uint16_t*>(kCDataFileAddress + 0x1C);
+        auto playerSkillTable = *reinterpret_cast<void**>(kCDataFileAddress + 0x18);
+        auto npcMaxSkillId = *reinterpret_cast<const std::uint16_t*>(kNpcSkillDataAddress + 0x1C);
+        auto npcSkillTable = *reinterpret_cast<void**>(kNpcSkillDataAddress + 0x18);
+        if (!playerMaxSkillId || !playerSkillTable || !npcMaxSkillId || !npcSkillTable)
+            return false;
+
+        for (int skillId = 1; skillId <= playerMaxSkillId; ++skillId)
+        {
+            for (int skillLv = kMinSDataSkillLevel; skillLv <= kMaxSDataSkillLevel; ++skillLv)
+            {
+                if (shaiya::CDataFile::GetSkillInfo(skillId, skillLv))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    DWORD WINAPI sdata_text_normalizer_thread(LPVOID)
+    {
+        for (int attempts = 0; attempts < 600; ++attempts)
+        {
+            if (is_sdata_text_ready())
+            {
+                Sleep(1000);
+                normalize_sdata_text_to_utf8();
+                return 0;
+            }
+
+            Sleep(100);
+        }
+
+        return 0;
+    }
 
     bool is_string_game_window_class(LPCSTR value)
     {
@@ -589,4 +1029,11 @@ void hook::unicode()
     // renderer are already UTF-8 aware. NOP only that forced terminator; do not
     // resize structs or global buffers here.
     util::write_memory((void*)0x47A6BC, "\x90\x90\x90\x90", 4);
+
+    if (kEnableSDataLegacyTextToUtf8)
+    {
+        auto thread = CreateThread(nullptr, 0, sdata_text_normalizer_thread, nullptr, 0, nullptr);
+        if (thread)
+            CloseHandle(thread);
+    }
 }

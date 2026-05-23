@@ -1,5 +1,6 @@
 #include "include/imgui_layer_internal.h"
 #include "include/debug_panel.h"
+#include "include/custom_chat.h"
 #include "include/shaiya/RewardItemEvent.h"
 #include "include/shaiya/Roulette.h"
 
@@ -135,6 +136,21 @@ namespace imgui_layer
     bool is_game_scene_stable()
     {
         return is_game_scene() && !is_map_transition_active();
+    }
+
+    void update_anchored_button_positions()
+    {
+        if (!g_mainMapObjectPtr)
+            return;
+
+        auto ptr = reinterpret_cast<const unsigned*>(g_mainMapObjectPtr);
+        float x = static_cast<float>(ptr[1]) + kButtonAnchorOffsetX;
+        float y = static_cast<float>(ptr[2] + ptr[4]) + kButtonAnchorOffsetY;
+
+        g_rewardButtonPosition   = ImVec2(x, y);
+        g_rouletteButtonPosition = ImVec2(x + kButtonAnchorStride, y);
+        g_settingsButtonPosition = ImVec2(x + kButtonAnchorStride * 2, y);
+        g_npcButtonPosition      = ImVec2(x + kButtonAnchorStride * 3, y);
     }
 
     bool is_overlay_display_usable(const ImVec2& size)
@@ -287,7 +303,7 @@ namespace imgui_layer
 
     // Hit-test the mouse position against every visible ImGui window from
     // the previous frame.  This covers panels, roulette, emoji picker, debug
-    // overlays â€” anything ImGui drew â€” without maintaining a manual rect list.
+    // overlays -- anything ImGui drew -- without maintaining a manual rect list.
     // Used as a fallback when io.WantCaptureMouse hasn't caught up yet (the
     // classic 1-frame delay between mouse movement and NewFrame hover update).
     static bool is_point_over_any_imgui_window(float x, float y)
@@ -319,7 +335,7 @@ namespace imgui_layer
         if (is_mouse_message(msg))
         {
             // WM_SETCURSOR fires before every WM_MOUSEMOVE. Skip it entirely
-            // â€” NoMouseCursorChange already prevents ImGui from calling
+            // -- NoMouseCursorChange already prevents ImGui from calling
             // LoadCursor+SetCursor, and forwarding it added no value.
             if (msg == WM_SETCURSOR)
                 return false;
@@ -395,11 +411,11 @@ namespace imgui_layer
                 }
             }
 
-            // Mouse is not over any ImGui element â€” don't consume the message.
+            // Mouse is not over any ImGui element -- don't consume the message.
             return false;
         }
 
-        // Non-mouse messages (keyboard, etc.) â€” always forward to ImGui.
+        // Non-mouse messages (keyboard, etc.) -- always forward to ImGui.
         ImGui_ImplWin32_WndProcHandler(hwnd, msg, wParam, lParam);
         return false;
     }
@@ -532,7 +548,7 @@ namespace imgui_layer
         // runs at an internal resolution that differs from the window size
         // (common at non-native resolutions), DX9 renders at backbuffer
         // dimensions while ImGui positions and hit-tests at window dimensions
-        // â€” panels appear visually offset from their clickable area.
+        // -- panels appear visually offset from their clickable area.
         //
         // Fix: (a) override DisplaySize to the backbuffer before NewFrame so
         //      ImGui's frame setup, rendering, and hit-testing all use the
@@ -562,7 +578,7 @@ namespace imgui_layer
                     // The Win32 backend may have queued a position event
                     // from GetCursorPos+ScreenToClient (window space);
                     // adding a corrected event here ensures the last
-                    // queued position â€” the one NewFrame will finalize â€”
+                    // queued position -- the one NewFrame will finalize --
                     // is in backbuffer space, matching DisplaySize.
                     POINT pt;
                     if (::GetCursorPos(&pt) &&
@@ -590,7 +606,7 @@ namespace imgui_layer
 
         // DirectInput click suppression is handled by the GetDeviceState
         // vtable hook (install_dinput_mouse_hook), which intercepts mouse
-        // button state at poll time â€” before the game loop processes input.
+        // button state at poll time -- before the game loop processes input.
         // No additional clearing is needed here in the present hook.
 
         if ((GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0 && !g_draggingPanel)
@@ -623,6 +639,7 @@ namespace imgui_layer
 
         if (is_game_scene_stable())
         {
+            update_anchored_button_positions();
             if (roulette_event::hasList)
                 draw_roulette_button_overlay();
             if (reward_item_event::hasList)
@@ -632,7 +649,7 @@ namespace imgui_layer
         }
 
         debug_panel::render();
-        debug_panel::render_ingame_chat();
+        custom_chat::render_ingame_chat();
 
         if (g_showPanel)
             draw_panel_shell();

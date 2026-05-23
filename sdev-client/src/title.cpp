@@ -14,6 +14,7 @@ using std::min;
 #include <objidl.h>
 #include <external/stb/stb_image.h>
 #include <util/util.h>
+#include "include/game_data_archive.h"
 #include "include/main.h"
 #include "include/shaiya/CCharacter.h"
 #include "include/shaiya/CDataFile.h"
@@ -153,62 +154,7 @@ namespace title
 
     std::string get_game_relative_path(const char* relativePath)
     {
-        char modulePath[MAX_PATH]{};
-        if (GetModuleFileNameA(nullptr, modulePath, sizeof(modulePath)) == 0)
-            return relativePath ? relativePath : "";
-
-        auto path = std::string(modulePath);
-        auto slash = path.find_last_of("\\/");
-        if (slash == std::string::npos)
-            return relativePath ? relativePath : "";
-
-        path.resize(slash + 1);
-        if (relativePath)
-            path += relativePath;
-
-        return path;
-    }
-
-    std::string to_lower_ascii(std::string value)
-    {
-        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
-            return static_cast<char>(std::tolower(ch));
-        });
-        return value;
-    }
-
-    bool read_sah_u32(const std::vector<char>& data, std::size_t& offset, uint32_t& value)
-    {
-        if (offset + sizeof(value) > data.size())
-            return false;
-
-        std::memcpy(&value, data.data() + offset, sizeof(value));
-        offset += sizeof(value);
-        return true;
-    }
-
-    bool read_sah_u64(const std::vector<char>& data, std::size_t& offset, uint64_t& value)
-    {
-        if (offset + sizeof(value) > data.size())
-            return false;
-
-        std::memcpy(&value, data.data() + offset, sizeof(value));
-        offset += sizeof(value);
-        return true;
-    }
-
-    bool read_sah_string(const std::vector<char>& data, std::size_t& offset, std::string& value)
-    {
-        uint32_t length = 0;
-        if (!read_sah_u32(data, offset, length) || offset + length > data.size())
-            return false;
-
-        value.assign(data.data() + offset, data.data() + offset + length);
-        while (!value.empty() && value.back() == '\0')
-            value.pop_back();
-
-        offset += length;
-        return true;
+        return game_data::relative_path(relativePath);
     }
 
     bool parse_visual_title_file_name(const char* fileName, const char* extension, uint16_t& index)
@@ -261,90 +207,23 @@ namespace title
         visualTitleAssets.emplace(key, VisualTitleAsset{ kind, index, fileOffset, fileSize });
     }
 
-    bool scan_sah_directory_for_visual_titles(const std::vector<char>& data, std::size_t& offset, const std::string& parentPath)
-    {
-        std::string name;
-        if (!read_sah_string(data, offset, name))
-            return false;
-
-        auto path = parentPath;
-        if (!name.empty())
-            path = path.empty() ? name : path + "\\" + name;
-
-        uint32_t fileCount = 0;
-        if (!read_sah_u32(data, offset, fileCount))
-            return false;
-
-        auto lowerPath = to_lower_ascii(path);
-        for (uint32_t i = 0; i < fileCount; ++i)
-        {
-            std::string fileName;
-            uint64_t fileOffset = 0;
-            uint64_t fileSize = 0;
-            if (!read_sah_string(data, offset, fileName)
-                || !read_sah_u64(data, offset, fileOffset)
-                || !read_sah_u64(data, offset, fileSize))
-            {
-                return false;
-            }
-
-            if (is_sah_visual_title_folder(lowerPath, VisualTitleKind::Png))
-                try_add_visual_title_from_sah_file(VisualTitleKind::Png, fileName, fileOffset, fileSize);
-            else if (is_sah_visual_title_folder(lowerPath, VisualTitleKind::Gif))
-                try_add_visual_title_from_sah_file(VisualTitleKind::Gif, fileName, fileOffset, fileSize);
-        }
-
-        uint32_t directoryCount = 0;
-        if (!read_sah_u32(data, offset, directoryCount))
-            return false;
-
-        for (uint32_t i = 0; i < directoryCount; ++i)
-        {
-            if (!scan_sah_directory_for_visual_titles(data, offset, path))
-                return false;
-        }
-
-        return true;
-    }
-
     void ensure_visual_title_catalog_loaded()
     {
         if (visualTitleCatalogLoaded)
             return;
 
         visualTitleCatalogLoaded = true;
-        auto sahPath = get_game_relative_path("data.sah");
-        std::ifstream stream(sahPath, std::ios::binary);
-        if (!stream)
-            return;
-
-        std::vector<char> data(
-            (std::istreambuf_iterator<char>(stream)),
-            std::istreambuf_iterator<char>());
-        if (data.size() <= 0x34 || std::memcmp(data.data(), "SAH", 3) != 0)
-            return;
-
-        auto offset = std::size_t{ 0x34 };
-        scan_sah_directory_for_visual_titles(data, offset, "");
+        game_data::scan_sah_files([](const game_data::SahFileEntry& entry) {
+            if (is_sah_visual_title_folder(entry.lowerPath, VisualTitleKind::Png))
+                try_add_visual_title_from_sah_file(VisualTitleKind::Png, entry.fileName, entry.offset, entry.size);
+            else if (is_sah_visual_title_folder(entry.lowerPath, VisualTitleKind::Gif))
+                try_add_visual_title_from_sah_file(VisualTitleKind::Gif, entry.fileName, entry.offset, entry.size);
+        });
     }
 
     bool read_client_data_file(const VisualTitleAsset& asset, std::vector<char>& fileData)
     {
-        if (asset.dataSize == 0 || asset.dataSize > UINT_MAX)
-            return false;
-
-        auto safPath = get_game_relative_path("data.saf");
-        std::ifstream stream(safPath, std::ios::binary);
-        if (!stream)
-            return false;
-
-        stream.seekg(static_cast<std::streamoff>(asset.dataOffset), std::ios::beg);
-        if (!stream)
-            return false;
-
-        fileData.assign(static_cast<std::size_t>(asset.dataSize), 0);
-        stream.read(fileData.data(), static_cast<std::streamsize>(fileData.size()));
-        return stream.gcount() == static_cast<std::streamsize>(fileData.size());
+        return game_data::read_saf_file(asset.dataOffset, asset.dataSize, fileData);
     }
 
     bool assign_texture_size(CTexture& texture)

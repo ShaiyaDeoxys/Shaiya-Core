@@ -1,7 +1,9 @@
+#include <util/util.h>
 #include "include/imgui_layer_internal.h"
+#include "include/main.h"
 #include "include/shaiya/CNetwork.h"
 #include "include/config.h"
-#include "include/debug_panel.h"
+#include "include/custom_chat.h"
 
 unsigned u0x422B96 = 0x422B96;
 void __declspec(naked) naked_chat_add_token_filter()
@@ -27,6 +29,28 @@ void __declspec(naked) naked_chat_add_token_filter()
 
         sub esp, 0xA4C
         jmp u0x422B96
+    }
+}
+
+unsigned u0x422636 = 0x422636;
+void __declspec(naked) naked_chatbox_add_line_filter()
+{
+    __asm
+    {
+        pushad
+        call custom_chat::hide_native_chat_visuals
+        test al, al
+        popad
+        jnz suppressed
+
+        // Replay overwritten prologue at 0x422630.
+        push ecx
+        push ebx
+        mov ebx, dword ptr [esp + 0x0C]
+        jmp u0x422636
+
+    suppressed:
+        ret 0x08
     }
 }
 
@@ -176,6 +200,41 @@ void __declspec(naked) naked_native_text_draw_probe()
     }
 }
 
+unsigned u0x4DE6B0 = 0x4DE6B0;
+void __declspec(naked) naked_capture_main_map_anchor()
+{
+    using namespace imgui_layer;
+    __asm
+    {
+        mov g_mainMapObjectPtr, esi
+
+        lea ecx, [esi+0xCB8]
+        jmp u0x4DE6B0
+    }
+}
+
+// Hook at VA 0x47D1F0 — chat panel init function.
+// Original bytes: 51 53 55 56 8B F1 (push ecx; push ebx; push ebp; push esi; mov esi,ecx)
+// We capture ecx (this = 0x75E0-byte chat panel object) then replay the
+// overwritten prologue and jump back.
+unsigned u0x47D1F6 = 0x47D1F6;
+void __declspec(naked) naked_capture_chat_panel()
+{
+    using namespace imgui_layer;
+    __asm
+    {
+        mov g_chatPanelPtr, ecx
+
+        // Replay overwritten prologue (6 bytes)
+        push ecx
+        push ebx
+        push ebp
+        push esi
+        mov esi, ecx
+        jmp u0x47D1F6
+    }
+}
+
 void tick_client_welcome_sysmsg()
 {
     imgui_layer::send_welcome_sysmsg_once();
@@ -186,8 +245,16 @@ void hook::imgui_layer()
     if (!config::load_imgui_overlay())
         return;
 
+    // Capture main_map CWindow pos/size every frame for ImGui button anchoring.
+    util::detour((void*)0x4DE6AA, naked_capture_main_map_anchor, 6);
+
+    // Capture the chat panel object pointer (0x75E0-byte UI container)
+    // so the custom chat can follow native resize and placement.
+    util::detour((void*)0x47D1F0, naked_capture_chat_panel, 6);
+
     imgui_layer::g_emojisEnabled = config::load_emojis_enabled();
     imgui_layer::install_chat_emoji_hook();
+    util::detour((void*)0x422630, naked_chatbox_add_line_filter, 6);
 
     if (imgui_layer::g_running.exchange(true))
         return;

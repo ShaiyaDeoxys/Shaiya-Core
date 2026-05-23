@@ -17,7 +17,7 @@ This module contains `Game.exe` hooks and client-side quality-of-life patches.
 ..\build-client.cmd
 ```
 
-The root build script restores the required DirectX SDK package and builds `sdev-client` as Release|x86.
+The root `build-client.cmd` and `build-client.ps1` wrappers build `sdev-client` as Release|x86. The PowerShell wrapper also accepts `-Configuration Debug|Release` and `-Target Build|Rebuild|Clean`.
 
 ## CONFIG.INI
 
@@ -43,9 +43,6 @@ SKIPMODESELECTION=1
 ; Non-zero values disable the EP4 HUD layout package.
 UI=0
 
-; GM/admin ID view. Always enabled in the current build.
-IDVIEW=ON
-
 ; Visual title rendering from cloak data.
 TITLES=ON
 
@@ -59,6 +56,19 @@ WINGS=TRUE
 EFFECTS=TRUE
 FPS_BOOST=FALSE
 
+; 1 enables the ImGui overlay layer.
+; 0 disables ImGui overlay rendering and its interactive helpers.
+IMGUIOVERLAY=1
+
+; Custom native-anchored chat replacement.
+; 1 hides stock chat text and renders the Core chat at the native chat coordinates.
+; 0 disables the replacement and lets the stock chat appear normally.
+CUSTOMCHAT=1
+
+; Master toggle for visual chat tokens.
+; The picker also exposes runtime ON/OFF controls for emojis and GIFs.
+EMOJIS=1
+
 [FONT]
 ; Written by /font. Defaults to Arial 13 normal.
 HEIGHT=13
@@ -68,22 +78,8 @@ FACENAME=Arial
 
 [IMGUI]
 ; Runtime ImGui overlay state. Most values are written by dragging buttons/panels in game.
-INGAME_CHAT_ACTIVE=FALSE
-PARALLEL_CHAT_ACTIVE=FALSE
-HIDE_NATIVE_CHAT=FALSE
 ID_VIEW_ENABLED=TRUE
-
-[CHATOPTIONS]
-; Parallel chat window positions and sizes in normalized screen coordinates (0.0–1.0).
-; Written by the F9 debug panel > Parallel Chat tab.
-UpperX=0.000
-UpperY=0.400
-UpperW=0.200
-UpperH=0.300
-LowerX=0.000
-LowerY=0.600
-LowerW=0.200
-LowerH=0.300
+REWARD_AUTOCLAIM=FALSE
 ```
 
 ## Commands
@@ -104,6 +100,12 @@ Repository scope reminder: `sdev` is the game server module, and `sdev-client` i
 
 This section is the client-side feature map. Every entry is installed from `Main()` in `src/main.cpp`.
 
+### Internal Client Infrastructure
+
+- **Internal archive reader**: `src/game_data_archive.cpp` centralizes `data.sah` scanning and `data.saf` byte reads for client-side assets. Feature modules still own their file naming and folder rules, but they no longer duplicate archive parsing.
+- **Native address map**: `src/include/game_addresses.h` groups shared Game.exe addresses used by Unicode, text hooks, and visual chat tokens.
+- **Custom chat module**: `src/custom_chat.cpp` owns the native-anchored Core chat replacement. The GM debug panel only exposes tuning controls through `Chat options`.
+
 ### Startup, Login, And Windowing
 
 - **Updater bypass**: `ADVANCED/SKIPUPDATER=1` injects the same command-line token normally provided by `Updater.exe`, allowing direct `Game.exe` launch without changing the normal startup state machine.
@@ -112,9 +114,10 @@ This section is the client-side feature map. Every entry is installed from `Main
 - **Single-server skip**: `ADVANCED/SKIPSERVERSELECTION=1` hides the server panel and selects the only available server through the safe delayed stock path.
 - **Unicode main HWND**: upgrades the GAME window to a Unicode window and keeps the visible title as `Shaiya`, preventing the legacy title truncation issue.
 - **UTF-8 chat input**: accepts composed Unicode/IME text, stores UTF-8 bytes in the stock textbox, fixes multibyte wrapping/rendering branches, and removes the forced byte-127 send terminator.
+- **SData string UTF-8 support**: after the native data loaders finish, normalizes legacy high-byte SData strings to UTF-8 for visible item, skill, NPC skill, cash product, monster, and quest text. Already-valid UTF-8 is left untouched.
 - **Client UI dispatch**: subclasses the game window so ImGui helpers can safely post roulette requests and chat-token inserts back through the game UI thread.
 - **Welcome message**: posts the existing `SysMsg` welcome entry after the client UI is ready. The message text remains owned by the normal `sysmsg.txt` data.
-- **Visual chat tokens**: draws a movable ImGui emoji button near the chat input during gameplay. The button position can be relocated from the picker panel (Move/Reset) and is persisted to `CONFIG.INI`. The picker scans `emojiN.png` entries from `Assets/Emojis` and `gifN.gif` entries from `Assets/Gifs` in `data.sah/saf`, then inserts plain chat tokens such as `:emoji1:` or `:gif2:` into the stock textbox through the game UI thread. The picker exposes separate ON/OFF toggles for emojis and GIFs; disabled token families are hidden from native text without drawing an overlay. GIF picker entries use lightweight static previews with a bounded resident cache, while full animation is loaded only when a GIF is rendered in chat/floating text. Packets and server handling remain plain text.
+- **Visual chat tokens**: draws an ImGui emoji button anchored to the native lower chat controls during gameplay, so it follows resolution changes and native chat resizing. The picker opens relative to that button, scans `emojiN.png` entries from `Assets/Emojis` and `gifN.gif` entries from `Assets/Gifs` in `data.sah/saf`, then inserts plain chat tokens such as `:emoji1:` or `:gif2:` into the stock textbox through the game UI thread. The picker exposes separate ON/OFF toggles for emojis and GIFs; disabled token families are hidden from native text without drawing an overlay. GIF picker entries use lightweight static previews with a bounded resident cache, while full animation is loaded only when a GIF is rendered in chat/floating text. Packets and server handling remain plain text.
 
 ### Character Creation And Selection
 
@@ -164,7 +167,7 @@ This section is the client-side feature map. Every entry is installed from `Main
 - **System message 509 support**: handles the `0x229` message path.
 - **Javelin attack fix**: adjusts the `0x502` handler stack/argument layout.
 - **Item icon quantities**: draws inventory and quickslot item counts while skipping lapis/firework-style items that should not show counts.
-- **Elemental icon overlay**: draws a small element badge (fire, water, earth, wind) in the bottom-right corner of eligible item icons in both inventory and quickslot bars. Detection checks inserted lapis gems first, then falls back to the base item attribute. Textures are loaded once from `Assets/General/{fire,water,earth,wind}.png` inside `data.saf`.
+- **Elemental icon overlay**: draws a small element badge (fire, water, earth, wind) in the bottom-right corner of eligible item icons in both inventory and quickslot bars. Detection checks inserted lapis gems first, then falls back to the base item attribute. Textures are indexed through `data.sah` and loaded once from `Assets/General/{fire,water,earth,wind}.png` inside `data.saf`.
 - **Two-hand/off-hand logic**: fixes `CPlayerData::IsTwoHandWeapon` behavior so custom off-hand support can coexist with one-hand weapons.
 - **Weapon step display**: patches the client weapon-step path used by lapisian/enchant display.
 - **Item description augmentation**: a background thread runs once after item data is loaded and appends OJ reroll info (maximum OJs and highest OJ value, or "cannot be rerolled") and grade value (admin-only) to each item's description pointer in-place. Zero per-frame overhead.
@@ -187,9 +190,9 @@ This section is the client-side feature map. Every entry is installed from `Main
 
 ### Visual Timers And Flow
 
-- **Ress leader timer**: aligns the client popup countdown with the server-side 5 second timer.
+- **Leader resurrection timer**: aligns the client popup countdown with the server-side 5 second timer.
+- **UM chars can ress leader**: routes the Grow 3 death dialog through the same leader-resurrection window used by Grow 2. The server still authorizes the actual resurrection.
 - **Logout/game-over timer**: aligns the visible logout countdown with the shortened server logout delay of 2000ms.
-- **Subaction sysmsg cooldown**: rate-limits sysmsgs `5228..5237` to one visible message every 20 seconds per player name instead of removing them completely.
 - **Experience view fix**: prevents the client from displaying experience values multiplied by ten and ignores locale-specific EXP multiplication where applicable.
 
 ### Resolution And Graphics
@@ -206,8 +209,8 @@ This section is the client-side feature map. Every entry is installed from `Main
 - Discord RPC initializes with the static application id/message defined in `src/discord.cpp`.
 - The roulette panel is opened from `RouletteIcon.png`. It is visible to all players, requests the server reward list, displays real item names/icons from the configured server rewards, and sends the server roulette roll packet. Hovering a reward on the wheel shows the item name and description tooltip.
 - The settings button opens a compact `Quick Settings` panel for visual toggles such as wings, pets, costumes, titles, colours, FPS boost, and effects. The button and panel positions persist in `CONFIG.INI`.
-- `F9` toggles the minimal GM debug panel (requires `IsAdmin`). It keeps the ID View toggle and a Parallel Chat section with activation toggles and color controls.
-- The parallel chat overlay mirrors native upper/lower chat text through ImGui with hardcoded Tahoma 14px font and text shadow. Each window has a drag handle for repositioning and a resize grip. Layout is stored in normalized screen coordinates and persisted in `[CHATOPTIONS]`.
+- `F9` toggles the minimal GM debug panel (requires `IsAdmin`). It keeps the ID View toggle and the `Chat options` controls for custom chat wrap/color tuning.
+- The Core chat replacement is enabled by default through `ADVANCED/CUSTOMCHAT=1`. It hides stock chat text, records the same incoming chat stream, and renders upper/lower messages at the native CChat coordinates so resolution changes, native vertical resize, and native scroll state remain aligned. Set `CUSTOMCHAT=0` to return to the stock chat renderer.
 - The welcome system message is a lifecycle behavior rather than a user-controlled panel feature.
 - The emoji/GIF picker is an in-world chat helper, not a panel module. Its ON/OFF controls live inside the picker.
 - DirectInput mouse hook suppresses game click-to-move input when ImGui owns the cursor, preventing character movement behind panels.
@@ -221,9 +224,10 @@ This section is the client-side feature map. Every entry is installed from `Main
 - Battleground uses `main_stats_pvp_button.png`.
 - Visual chat token assets are read from the internal data archive: `Assets/Emojis/emojiN.png` and `Assets/Gifs/gifN.gif`.
 - Roulette background is read from `Assets/General/Roulette.png` inside `data.sah/saf`.
-- Roulette item icons use embedded DDS atlas resources in `resources/item_icons_atlas`. These resources mirror the client item icon atlases needed to draw server-defined rewards inside the ImGui panel. DDS textures (DXT1/DXT3/DXT5) are decoded by a built-in parser; PNG textures are decoded by stb_image. Neither path requires the D3DX runtime.
+- Roulette item icons read the native DDS atlases from `Data/interface/icon` inside `data.sah/saf`, including special atlases such as `icon_somo3.dds`. The SAH index is parsed once and DDS textures (DXT1/DXT3/DXT5) are decoded by a built-in parser, so the ImGui panel follows the client's data without embedding atlas copies in `sdev-client.dll`.
 - Remote NPC, settings, reward, and roulette buttons load their PNGs from `Assets/General` inside `data.sah/saf`.
-- Visual title images are read from `Assets/Titles/emojiN.png` (static) and `Assets/TitlesAnimated/gifN.gif` (animated) inside `data.sah/saf`.
+- Visual title images are read from `Assets/Titles/titleN.png` (static) and `Assets/TitlesAnimated/titleN.gif` (animated) inside `data.sah/saf`.
 - Elemental icon badges are read from `Assets/General/{fire,water,earth,wind}.png` inside `data.sah/saf`. The SAH index is parsed once to locate the files and each PNG is decoded by stb_image into a D3D9 managed texture.
+- Internal archive access is centralized in `src/game_data_archive.cpp`; features still decide which folders/files they need, but they share the same `data.sah` scanner and `data.saf` reader.
 - The client intentionally keeps icon assets outside the broad PNG redirect unless a feature explicitly handles them.
 - Custom recreation rune UI acceptance is only client-side placement. Server behavior is implemented in `sdev`.

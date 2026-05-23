@@ -8,6 +8,7 @@
 #include <commdlg.h>
 #include <util/util.h>
 #include "include/main.h"
+#include "include/custom_chat.h"
 #include "include/shaiya/Static.h"
 using namespace shaiya;
 
@@ -371,6 +372,20 @@ int command_handler(char* text)
         return 0;
     }
 
+    // /mute PlayerName — permanently block all messages from that player
+    if (argv[0] == "/mute" && argc >= 2)
+    {
+        custom_chat::mute_player(argv[1].c_str());
+        return 0;
+    }
+
+    // /unmute PlayerName — remove player from the mute list
+    if (argv[0] == "/unmute" && argc >= 2)
+    {
+        custom_chat::unmute_player(argv[1].c_str());
+        return 0;
+    }
+
     return 1;
 }
 
@@ -576,13 +591,13 @@ void __declspec(naked) naked_0x580D30()
     __asm
     {
         cmp dword ptr [g_fpsBoost], 1
-        jne disabled
+        je enabled
 
         push ebx
         mov ebx, 0x007B19B0
         jmp u0x580D36
 
-        disabled:
+        enabled:
         jmp u0x580DCE
     }
 }
