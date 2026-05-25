@@ -152,11 +152,6 @@ namespace title
         }
     }
 
-    std::string get_game_relative_path(const char* relativePath)
-    {
-        return game_data::relative_path(relativePath);
-    }
-
     bool parse_visual_title_file_name(const char* fileName, const char* extension, uint16_t& index)
     {
         constexpr const char* kPrefix = "title";

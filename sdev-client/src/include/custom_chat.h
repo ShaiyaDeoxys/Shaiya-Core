@@ -64,8 +64,9 @@
 //     - Tracker map is pruned when it exceeds 500 entries.
 //
 //  6. RENDER CAP
-//     - Hard limit of 64 wrapped lines per panel per frame, preventing
-//       render-time lag from an extreme flood filling the ring buffer.
+//     - Hard limit of 1536 wrapped lines per panel per frame (512 stored
+//       messages x 3 wrapped lines).  draw_line_stack() still draws only
+//       the visible slice.
 //
 // ---- Ring buffer ----
 //

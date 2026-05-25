@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include "include/interface_redirect.h"
+#include "include/game_data_archive.h"
 
 namespace
 {
@@ -18,12 +19,9 @@ namespace
     // Set by patch_folder_to_custom() based on the UI level from CONFIG.ini.
     const char* g_customUiFolder = "intf_epi6";
 
-    std::string to_lower_copy(std::string value)
+    std::string to_lower_copy(const std::string& value)
     {
-        for (auto& c : value)
-            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-
-        return value;
+        return game_data::lower_ascii(value);
     }
 
     bool ends_with_ignore_case(const std::string& value, const char* suffix)
@@ -38,14 +36,7 @@ namespace
 
     std::filesystem::path get_client_data_sah_path()
     {
-        char moduleFileName[MAX_PATH]{};
-        if (!GetModuleFileNameA(nullptr, moduleFileName, MAX_PATH))
-            return {};
-
-        std::filesystem::path path(moduleFileName);
-        path = path.parent_path();
-        path /= "data.sah";
-        return path;
+        return std::filesystem::path(game_data::relative_path("data.sah"));
     }
 
     struct InterfacePngRedirectData

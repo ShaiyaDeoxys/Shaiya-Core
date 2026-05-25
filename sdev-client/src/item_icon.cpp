@@ -17,7 +17,6 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
-#include <fstream>
 #include <string>
 #include <vector>
 #define WIN32_LEAN_AND_MEAN
@@ -88,8 +87,6 @@ namespace
         bool     found         = false;
         bool     loadAttempted = false;
         LPDIRECT3DTEXTURE9 texture = nullptr;
-        int      width         = 0;
-        int      height        = 0;
     };
 
     ElementTexture g_textures[kElementCount]{};
@@ -127,23 +124,22 @@ namespace
     // PNG -> D3D9 texture (stb_image, RGBA -> BGRA swizzle)
     // -----------------------------------------------------------------------
     LPDIRECT3DTEXTURE9 create_texture_from_png(LPDIRECT3DDEVICE9 device,
-                                                const void* data, UINT dataSize,
-                                                int& outW, int& outH)
+                                                const void* data, UINT dataSize)
     {
         if (!device || !data || dataSize == 0)
             return nullptr;
 
-        int channels = 0;
+        int w = 0, h = 0, channels = 0;
         auto* pixels = stbi_load_from_memory(
             static_cast<const stbi_uc*>(data),
             static_cast<int>(dataSize),
-            &outW, &outH, &channels, 4);
+            &w, &h, &channels, 4);
         if (!pixels)
             return nullptr;
 
         LPDIRECT3DTEXTURE9 tex = nullptr;
         if (FAILED(device->CreateTexture(
-                static_cast<UINT>(outW), static_cast<UINT>(outH),
+                static_cast<UINT>(w), static_cast<UINT>(h),
                 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, nullptr)) || !tex)
         {
             stbi_image_free(pixels);
@@ -158,11 +154,11 @@ namespace
             return nullptr;
         }
 
-        for (int y = 0; y < outH; ++y)
+        for (int y = 0; y < h; ++y)
         {
-            auto* src = pixels + y * outW * 4;
+            auto* src = pixels + y * w * 4;
             auto* dst = static_cast<BYTE*>(locked.pBits) + y * locked.Pitch;
-            for (int x = 0; x < outW; ++x)
+            for (int x = 0; x < w; ++x)
             {
                 dst[x * 4 + 0] = src[x * 4 + 2]; // B
                 dst[x * 4 + 1] = src[x * 4 + 1]; // G
@@ -191,8 +187,7 @@ namespace
             return;
 
         et.texture = create_texture_from_png(device, fileData.data(),
-                                              static_cast<UINT>(fileData.size()),
-                                              et.width, et.height);
+                                              static_cast<UINT>(fileData.size()));
     }
 
     // -----------------------------------------------------------------------

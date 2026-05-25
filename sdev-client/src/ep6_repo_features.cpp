@@ -5,6 +5,7 @@
 #include <string>
 #include <util/util.h>
 #include "include/main.h"
+#include "include/game_data_archive.h"
 
 namespace client_features
 {
@@ -23,18 +24,9 @@ namespace client_features
         int g_savedX = INT_MIN;
         int g_savedY = INT_MIN;
 
-        std::string get_config_ini_path()
+        const std::string& get_config_ini_path()
         {
-            char moduleFileName[MAX_PATH]{};
-            if (!GetModuleFileNameA(nullptr, moduleFileName, MAX_PATH))
-                return ".\\CONFIG.ini";
-
-            std::string path(moduleFileName);
-            auto slashPos = path.find_last_of("\\/");
-            if (slashPos != std::string::npos)
-                path.resize(slashPos + 1);
-
-            path += "CONFIG.ini";
+            static std::string path = game_data::relative_path("CONFIG.ini");
             return path;
         }
 

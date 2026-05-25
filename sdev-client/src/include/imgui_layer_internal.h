@@ -441,8 +441,6 @@ namespace imgui_layer
     void draw_lower_chat_emoji_overlay();
     void draw_emoji_overlay();
     void install_chat_emoji_hook();
-    const std::string& get_game_base_dir();
-    std::string get_game_relative_path(const char* relative);
     LPDIRECT3DTEXTURE9 load_saf_texture(LPDIRECT3DTEXTURE9& texture, bool& loadAttempted, bool found, uint64_t offset, uint64_t size);
     LPDIRECT3DTEXTURE9 load_roulette_bg_texture();
     LPDIRECT3DTEXTURE9 load_reward_icon_texture();

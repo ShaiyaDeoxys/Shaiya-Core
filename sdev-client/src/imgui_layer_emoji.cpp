@@ -116,16 +116,6 @@ namespace imgui_layer
             g_showEmojiPicker = !g_showEmojiPicker;
     }
 
-    const std::string& get_game_base_dir()
-    {
-        return game_data::base_dir();
-    }
-
-    std::string get_game_relative_path(const char* relativePath)
-    {
-        return game_data::relative_path(relativePath);
-    }
-
     bool parse_visual_token_file_name(const char* fileName, const char* prefix, const char* extension, int& index)
     {
         auto prefixLength = std::strlen(prefix);
@@ -710,7 +700,9 @@ namespace imgui_layer
         // them hides the notice payload and leaves the game with a tiny blank
         // balloon, so CUSTOMCHAT only suppresses regular upper/lower chat box
         // text and lets these native presentation paths keep their message.
-        return (chatType >= 23 && chatType <= 33) || chatType == 48 || chatType == 50;
+        return chatType == 23 || chatType == 24 || chatType == 25 ||
+               chatType == 28 || chatType == 29 || chatType == 30 ||
+               chatType == 48 || chatType == 50;
     }
 
     static float measure_chat_prefix_width_fallback(const char* text, int len)

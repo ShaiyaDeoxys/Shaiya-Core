@@ -6,39 +6,20 @@
 #include <cstdlib>
 #include "include/main.h"
 #include "include/config.h"
+#include "include/game_data_archive.h"
 #include "include/imgui_layer_internal.h"
 
 namespace config
 {
     const std::string& ini_path()
     {
-        static std::string path = []() -> std::string {
-            char moduleFileName[MAX_PATH]{};
-            if (!GetModuleFileNameA(nullptr, moduleFileName, MAX_PATH))
-                return ".\\CONFIG.ini";
-
-            std::string p(moduleFileName);
-            auto slashPos = p.find_last_of("\\/");
-            if (slashPos != std::string::npos)
-                p.resize(slashPos + 1);
-
-            p += "CONFIG.ini";
-            return p;
-        }();
+        static std::string path = game_data::relative_path("CONFIG.ini");
         return path;
     }
 }
 
 namespace
 {
-    std::string to_lower_copy(std::string value)
-    {
-        for (auto& c : value)
-            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-
-        return value;
-    }
-
     bool load_skip_updater_setting()
     {
         auto& iniPath = config::ini_path();
@@ -96,7 +77,7 @@ namespace
         if (!commandLine)
             return false;
 
-        return to_lower_copy(commandLine).find("start game") != std::string::npos;
+        return game_data::lower_ascii(commandLine).find("start game") != std::string::npos;
     }
 
     LPSTR WINAPI hooked_get_command_line_a()

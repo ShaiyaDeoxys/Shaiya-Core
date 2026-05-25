@@ -212,8 +212,11 @@ namespace custom_chat
         // Rules:
         //   - If the same exact text appears 5+ times within 10 seconds,
         //     further copies are silently suppressed.
-        //   - Only applies to public channels: 34 (ChatNormal), 38 (Trade),
-        //     39 (Shout), 40, 41 (Normal in-game), 49 (Area in-game).
+        //   - Only applies to public player channels: 34 (ChatNormal),
+        //     38 (Trade), 39 (Shout), 41 (Normal in-game), 49 (Area in-game).
+        //   - Type 40 is yellow/system-like in this client and is left
+        //     unthrottled so repeated server feedback (for example obstacle
+        //     messages) still reaches the chat history.
         //   - Private channels (Party, Whisper, Guild) are exempt.
         //   - Does NOT add artificial cooldowns — the native 6-second Trade
         //     cooldown is respected as-is from the server.
@@ -247,7 +250,7 @@ namespace custom_chat
             // Private channels (Party=35, Whisper=36, Guild=37, Raid) are
             // exempt — players need unrestricted comms in groups.
             if (chatType != 34 && chatType != 38 && chatType != 39 &&
-                chatType != 40 && chatType != 41 && chatType != 49)
+                chatType != 41 && chatType != 49)
                 return false;
 
             auto now = GetTickCount();
@@ -655,14 +658,14 @@ namespace custom_chat
         // 8. Security layer 7: Render cap
         // ===================================================================
         //
-        // Hard limit of 64 wrapped lines per panel per frame.  Prevents
-        // render-time lag if an extreme flood fills the ring buffer with
-        // long messages that each wrap to multiple lines.  Without this,
-        // 512 messages × 3 wrap lines = 1536 draw calls per panel, which
-        // would tank the frame rate.
+        // Hard limit of wrapped lines per panel per frame.  This must be
+        // high enough to include recent messages after long sessions.
+        // Previously, a 64-line cap filled with historical upper-chat lines
+        // and made new messages disappear once that threshold was reached.
+        // draw_line_stack() still draws only the visible slice.
         // ===================================================================
 
-        constexpr int kMaxRenderLinesPerPanel = 64;
+        constexpr int kMaxRenderLinesPerPanel = kMaxParallelMsgs * kNativeMaxLinesPerMsg;
 
         // ===================================================================
         // Initialization
@@ -708,10 +711,13 @@ namespace custom_chat
 
         // Chat types that are rendered as native screen notices (center-screen
         // overlays handled by the game engine, not by our parallel chat).
-        // We skip these in record_chat_type() to avoid double-rendering.
+        // Notice26/27 and Chat32/33 still belong to the chat history, so they
+        // are intentionally not skipped here.
         bool is_native_screen_notice_chat_type(int chatType)
         {
-            return (chatType >= 23 && chatType <= 33) || chatType == 48 || chatType == 50;
+            return chatType == 23 || chatType == 24 || chatType == 25 ||
+                   chatType == 28 || chatType == 29 || chatType == 30 ||
+                   chatType == 48 || chatType == 50;
         }
 
         // Returns true if the chat type belongs in the upper (combat/system)
@@ -1261,8 +1267,8 @@ namespace custom_chat
         if (!read_native_chat_metrics(metrics))
             return;
 
-        NativeChatLine upperLines[1024]{};
-        NativeChatLine lowerLines[1024]{};
+        static NativeChatLine upperLines[kMaxRenderLinesPerPanel]{};
+        static NativeChatLine lowerLines[kMaxRenderLinesPerPanel]{};
         int upperCount = 0;
         int lowerCount = 0;
 
