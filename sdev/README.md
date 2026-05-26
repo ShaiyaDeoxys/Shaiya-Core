@@ -15,7 +15,6 @@
 The server resolves paths from the game service executable directory, then the `Data` folder. This avoids broken relative paths when the DLL is imported or injected from a different working directory.
 
 - `Data/ServerConfig.ini`: global limits such as enchant cap and level cap.
-- `Data/BattleFieldMoveInfo.ini`: battleground level ranges and destination coordinates.
 - `Data/Teleport.ini`: named remote-teleport destinations, level gates, and faction-specific coordinates.
 - `Data/SetItem.SData`: decrypted server-side item set synergy data.
 - `Data/ChaoticSquare.ini`: item synthesis and chaotic square recipes.
@@ -79,7 +78,6 @@ if (Configuration::RouletteEnabled)
 - `LevelCap` defaults to `70`, is clamped to `1..254`, and patches known server level-cap comparisons.
 - `RewardBar` defaults to `1`. When `0`, the reward item event system is disabled.
 - `Roulette` defaults to `1`. When `0`, the roulette system is disabled.
-- `BattleFieldMoveInfo.ini` maps a level range to one destination per family: Human, Elf, Death Eater, and Vail.
 - `Teleport.ini` maps named remote-teleport destinations with optional level gates and separate Light/Fury coordinates.
 - `SetItem.SData` loads decrypted set bonuses and refreshes server-side synergy tables.
 - `ChaoticSquare.ini` loads item synthesis recipes and chaotic-square result tables.
@@ -92,9 +90,8 @@ if (Configuration::RouletteEnabled)
 - Validates packet lengths, fixed-string lengths, inventory coordinates, and user/item pointers in custom handlers.
 - Guards outgoing packet sends through helper checks.
 - Rejects malformed equipment and inventory actions before stock code can read invalid memory.
-- Keeps unsupported mailbox handling disabled; no mailbox hook is installed.
 
-### EtainShield (Anticheat)
+### EtainShield (Anticheat) - Experimental on this Build, OFF by default
 
 Server-side anticheat module configured via `Data/EtainShield.ini`. Each protection has an independent enable/disable toggle and tunable parameters. A global master switch disables all protections at once.
 
@@ -203,15 +200,6 @@ Server-side anticheat module configured via `Data/EtainShield.ini`. Each protect
 - `0x1C01`: maps the EP6.4 vehicle market type around unsupported stock market categories.
 - `0xA05`, `0xA09`, `0xA0A`, `0x240A`, and `0x240D`: support EP6.4 exchange item units and PVP exchange compatibility.
 - `0x2602`, `0x2603`, and `0xE06`: support item mall purchase/gift point flows and point persistence.
-
-### Battleground Movement
-
-- Packet `0x233` selects the valid battlefield for the player level.
-- Destination coordinates are selected by family.
-- Dead players, logging-out players, players already in the target map, and missing destination zones are rejected.
-- Movement uses the same 5 second cast/update path as town move scrolls.
-- The request does not consume an item; saved item-use bag, slot, and index are cleared before scheduling movement.
-- MyShop is ended and current actions are cancelled before the cast starts.
 
 ### Remote Teleport
 
