@@ -63,11 +63,7 @@ Runtime behavior is controlled through external files such as `CONFIG.INI`, serv
 
 - The updater is skipped by default for testing. Change `SKIPUPDATER` in `CONFIG.INI` to restore updater-required behavior.
 - Server selection and mode selection can be skipped through `CONFIG.INI` if desired.
-- Multi-UI folders are supported. `UI=0` uses the standard interface folder, while `UI=1` uses the EP6.4 interface folder.
-- The current default setup uses the custom EP4.5-style UI.
-- Interface assets and screenshots use `.png` instead of the original Shaiya `.tga` screenshot/interface workflow where supported.
 - Cosmetic and visual features can be toggled through commands such as `/wings off`, `/pets off`, `/costumes off`, `/titles off`, `/colour off`, and `/effects off`.
-- Performance Mode is tied to `F7`. It quickly toggles wings, pets, effects, and FPS boost for PvP or crowded scenes.
 - FPS boost can also be controlled manually with `/fpsboost on` and `/fpsboost off`.
 - Level cap and enchant cap are configured server-side through `ServerConfig.ini`.
 - `/font` changes the live game font and persists the selected font properties.
