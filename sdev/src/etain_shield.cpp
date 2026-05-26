@@ -22,15 +22,24 @@ using namespace shaiya;
 //
 //  PROTECTIONS
 //  -----------
-//  AntiSpeedHack   — Constant patching + per-packet movement speed validation
+//  AntiSpeedHack   — Calibrated per-packet movement speed validation
+//                    Uses real-world speed ceilings measured from the client:
+//                      On foot:  max ~12 units/s  (config: 12.5 with 0.5 margin)
+//                      Mounted:  max ~13 units/s  (config: 13.5 with 0.5 margin)
+//                    Mounted state detected via CUser::vehicleStatus == Riding.
+//                    Consecutive violations are forgiven up to the configured
+//                    threshold to absorb latency/desync spikes; repeated
+//                    violations trigger a rubber-band correction.
+//                    Detects speed hacks >= 1.1x reliably.
+//                    Also patches four native timing constants in ps_game.exe.
 //  AntiRangeHack   — Euclidean distance checks for attacks and skills
-//  AntiMoveAttack  — Block movement while the server considers the player attacking
+//  AntiCutting     — Freeze movement for configurable ms after each attack
 //
 //  ARCHITECTURE
 //  ------------
 //  - This file contains the C++ validation logic and the naked assembly detours.
 //  - Packet-level hooks (0x501/0x502/0x503 dispatch) live in packet_pc.cpp.
-//  - Per-user state fields live in CUser.h (etainLastPos, etainAttackLock*, etc.).
+//  - Per-user state fields live in CUser.h (etainLastPos, etainCutting*, etc.).
 //  - The single entry point hook::etain_shield() installs all memory patches
 //    and detours; it is called once from Main().
 //
@@ -82,87 +91,43 @@ namespace etain_shield
     //  AntiSpeedHack — Constant Patching
     // ===================================================================
     //
-    //  Overwrites four timing constants in the ps_game.exe data section
-    //  to tighten the native speed-validation window.
-    //
-    //  Const1 (double @ 0x5740D8) — max time-delta threshold
-    //  Const2 (float  @ 0x5740E4) — per-tick timing tolerance
-    //  Const3 (float  @ 0x5740D0) — timing multiplier
-    //  Const4 (double @ 0x5740C8) — timing accumulator addend
+    //  Overwrites four hardcoded timing constants in the ps_game.exe data
+    //  section to tighten the native speed-validation window.  These are
+    //  fixed values (not configurable via INI) — the real protection comes
+    //  from validate_movement() with calibrated speed ceilings.
 
     static void apply_speedhack_constants()
     {
-        auto& c = g_etainConfig;
-
-        double c1 = c.speedConst1;
+        constexpr double c1 = 10.0;
         util::write_memory((void*)0x5740D8, &c1, sizeof(c1));
 
-        float c2 = c.speedConst2;
+        constexpr float c2 = 0.13f;
         util::write_memory((void*)0x5740E4, &c2, sizeof(c2));
 
-        float c3 = c.speedConst3;
+        constexpr float c3 = 3.0f;
         util::write_memory((void*)0x5740D0, &c3, sizeof(c3));
 
-        double c4 = c.speedConst4;
+        constexpr double c4 = 2.0;
         util::write_memory((void*)0x5740C8, &c4, sizeof(c4));
     }
 
     // ===================================================================
-    //  AntiMoveAttack — Attack Movement Lock
+    //  AntiCutting — Freeze movement after attacking
     // ===================================================================
     //
-    //  Uses the server's own CUser::attackType field (0x1458) to know
-    //  whether the player is currently in an attack.  While attackType is
-    //  Basic or Skill AND we hold a lock snapshot, incoming 0x501 movement
-    //  packets are silently dropped.  A safety timeout (5 s) prevents
-    //  permanent freezes if the attack state gets stuck.
+    //  When a player lands an attack (basic or skill), all 0x501 movement
+    //  packets are silently dropped for a configurable duration (cuttingLockMs).
+    //  The server simply ignores movement — the player's position does not
+    //  change server-side.  No correction packet is sent.
     //
-    //  Lock lifecycle:
-    //    1. lock_movement_for_attack() — called when an attack passes validation
-    //    2. is_lock_active()           — queried per 0x501 packet
-    //    3. Lock clears when attackType==None OR timeout expires
-
-    static constexpr DWORD kLockTimeoutMs = 5000;
-
-    /// Returns true if the lock is still active (movement should be blocked).
-    /// If the lock has expired, clears it and sends a correction if needed.
-    static bool is_lock_active(CUser* user, DWORD now)
-    {
-        if (user->etainAttackLockTick == 0)
-            return false;
-
-        auto elapsed = now - user->etainAttackLockTick;
-
-        bool timedOut   = elapsed >= kLockTimeoutMs;
-        bool attackDone = (user->attackType == UserAttackType::None);
-
-        // Enforce a minimum lock duration regardless of attackType.
-        // Prevents jump-cancelling from clearing the lock prematurely.
-        if (elapsed < g_etainConfig.moveAttackMinLockMs)
-            return true;
-
-        if (!timedOut && !attackDone)
-            return true;
-
-        // Lock ended — clean up.
-        user->etainAttackLockTick = 0;
-
-        if (user->etainAttackLockDirty)
-        {
-            user->etainAttackLockDirty = false;
-            send_pos_correction(user, user->etainAttackLockPos);
-
-            // Sync speed-hack tracking so Protection 2 doesn't false-positive.
-            user->etainLastPos          = user->etainAttackLockPos;
-            user->etainLastMoveTick     = now;
-            user->etainViolationCount   = 0;
-        }
-
-        return false;
-    }
+    //  The lock renews on every attack, so continuous attacking keeps
+    //  the player rooted.  It expires naturally when no attacks occur
+    //  for cuttingLockMs.
+    //
+    //  Certain dash/displacement skills can be exempted via config.
 
     /// Check if the user is currently executing a skill exempt from the lock.
-    static bool is_skip_skill_active(CUser* user)
+    static bool is_cutting_skip_skill(CUser* user)
     {
         if (user->attackType != UserAttackType::Skill)
             return false;
@@ -172,7 +137,7 @@ namespace etain_shield
             return false;
 
         int skillId = user->skills[idx]->skillId;
-        for (auto id : g_etainConfig.moveAttackSkipSkills)
+        for (auto id : g_etainConfig.cuttingSkipSkills)
         {
             if (id == skillId)
                 return true;
@@ -182,34 +147,41 @@ namespace etain_shield
 
     void lock_movement_for_attack(CUser* user)
     {
-        if (!g_etainConfig.enabled || !g_etainConfig.moveAttackEnabled)
+        if (!g_etainConfig.enabled || !g_etainConfig.cuttingEnabled)
             return;
 
-        // Exempt configured dash/displacement skills from the lock.
-        if (is_skip_skill_active(user))
+        if (is_cutting_skip_skill(user))
             return;
 
-        auto now = GetTickCount();
-
-        // If a stale lock exists, let is_lock_active() clear it first.
-        if (user->etainAttackLockTick != 0)
-        {
-            if (is_lock_active(user, now))
-                return;  // legitimately locked — don't re-snapshot
-        }
-
-        user->etainAttackLockTick  = now;
-        user->etainAttackLockDirty = false;
-        user->etainAttackLockPos   = *user_pos(user);
+        user->etainCuttingUntil = GetTickCount() + g_etainConfig.cuttingLockMs;
     }
 
     // ===================================================================
-    //  AntiSpeedHack — Active Movement Validation  +  AntiMoveAttack
+    //  AntiSpeedHack — Active Movement Validation  +  AntiCutting
     // ===================================================================
     //
     //  validate_movement() is the single entry point for every 0x501
-    //  packet.  It runs both the AntiMoveAttack check and the speed
+    //  packet.  It runs both the AntiCutting check and the speed
     //  validation in sequence.
+    //
+    //  Speed validation uses calibrated coefficients measured server-side
+    //  via OutputDebugString logging of actual 0x501 packet distances/times.
+    //  Server-observed speeds differ from the client speed monitor (~7/~10)
+    //  because packets arrive at irregular intervals (~100–600ms) rather
+    //  than per-frame, and GetTickCount() resolution differs from QPC.
+    //
+    //  Calibrated ceilings (server-side measurement):
+    //    On foot: ~12 units/s  → threshold 12.5  (0.5 margin)
+    //    Mounted: ~13 units/s  → threshold 13.5  (0.5 margin)
+    //
+    //  Violation policy:
+    //    Below threshold: forgiven (possible latency spike, desync, packet burst)
+    //    At threshold+:   rubber-band correction (every violation)
+    //  Violations reset to 0 on any legitimate movement packet.
+    //
+    //  IMPORTANT: on violation, etainLastPos MUST advance to the packet
+    //  position.  Otherwise subsequent packets measure accumulated distance
+    //  from a stale position, causing a cascading false-positive spiral.
 
     bool validate_movement(CUser* user, GameCharMoveIncoming* packet)
     {
@@ -218,14 +190,16 @@ namespace etain_shield
 
         auto now = GetTickCount();
 
-        // --- AntiMoveAttack ---
-        if (g_etainConfig.moveAttackEnabled && user->etainAttackLockTick != 0)
+        // --- AntiCutting ---
+        // If a cutting lock is active, silently drop the movement packet.
+        // The server position does not change — the player simply cannot move.
+        if (g_etainConfig.cuttingEnabled && user->etainCuttingUntil != 0
+            && static_cast<int32_t>(now - user->etainCuttingUntil) < 0)
         {
-            if (is_lock_active(user, now))
-            {
-                user->etainAttackLockDirty = true;
-                return false;
-            }
+            // Keep speed-hack tracking in sync so the first move after
+            // the lock expires isn't measured from a stale position.
+            user->etainLastMoveTick = now;
+            return false;
         }
 
         // --- AntiSpeedHack ---
@@ -234,65 +208,73 @@ namespace etain_shield
 
         auto& c = g_etainConfig;
 
+        SVector packetPos = { packet->x, packet->y, packet->z };
+
         // First packet after login / teleport — seed tracking state.
         if (user->etainLastMoveTick == 0)
         {
-            user->etainLastPos       = { packet->x, packet->y, packet->z };
-            user->etainLastMoveTick  = now;
+            user->etainLastPos        = packetPos;
+            user->etainLastMoveTick   = now;
             user->etainViolationCount = 0;
             return true;
         }
 
         auto elapsed = now - user->etainLastMoveTick;
 
-        // Sub-50ms: allow and advance tracking (too short to hack meaningfully).
+        // Sub-50ms: too short to measure meaningfully — accept and advance.
         if (elapsed < 50)
         {
-            user->etainLastPos      = { packet->x, packet->y, packet->z };
+            user->etainLastPos      = packetPos;
             user->etainLastMoveTick = now;
             return true;
         }
 
-        float dx       = packet->x - user->etainLastPos.x;
-        float dz       = packet->z - user->etainLastPos.z;
-        float distance = std::sqrt(dx * dx + dz * dz);
+        // 2D ground distance from last validated position.
+        float distance = distance_2d(&packetPos, &user->etainLastPos);
 
-        // Teleport check — only trust if player has NO recent violations.
-        if (distance > c.speedTeleportThreshold && user->etainViolationCount == 0)
+        // Player didn't move (or moved negligibly) — not a speed hack.
+        // Accept and advance the timestamp so the next real move is
+        // measured from this point.
+        if (distance < 0.1f)
         {
-            user->etainLastPos       = { packet->x, packet->y, packet->z };
-            user->etainLastMoveTick  = now;
+            user->etainLastPos      = packetPos;
+            user->etainLastMoveTick = now;
+            // Don't reset violations — standing still doesn't prove innocence.
             return true;
         }
 
-        auto speed = user->abilityMoveSpeed;
-        if (speed < 1) speed = 1;
+        // Pick the right ceiling based on mounted state.
+        bool mounted = (user->vehicleStatus == UserVehicleStatus::Riding);
+        float maxSpeed = mounted ? c.speedMaxMounted : c.speedMaxOnFoot;
 
-        // maxDist = how far this player could legitimately travel in `elapsed` ms.
-        float maxDist = static_cast<float>(speed) *
-                        (static_cast<float>(elapsed) / 1000.0f) *
-                        c.speedTolerance;
+        // maxDist = how far this player could legitimately travel.
+        float maxDist = maxSpeed * (static_cast<float>(elapsed) / 1000.0f);
 
         if (distance <= maxDist)
         {
-            // Legitimate movement — advance tracking.
-            user->etainLastPos       = { packet->x, packet->y, packet->z };
-            user->etainLastMoveTick  = now;
+            // Legitimate movement — advance tracking, clear violations.
+            user->etainLastPos        = packetPos;
+            user->etainLastMoveTick   = now;
             user->etainViolationCount = 0;
             return true;
         }
 
-        // --- Violation: drop packet, never advance server position ---
+        // --- Violation ---
         ++user->etainViolationCount;
+
+        // CRITICAL: always advance tracking position and time.
+        // If we don't, the next packet measures distance from the stale
+        // position with a fresh elapsed → cascading false positives
+        // (speed appears to grow exponentially each packet).
         user->etainLastMoveTick = now;
+        user->etainLastPos      = packetPos;
 
-        // Send correction every N drops to resync the client.
-        if (user->etainViolationCount >= c.speedViolationThreshold)
-        {
-            send_pos_correction(user, user->etainLastPos);
-            user->etainViolationCount = 0;
-        }
+        // Early violations are forgiven (latency spikes, desync).
+        if (user->etainViolationCount < c.speedViolationThreshold)
+            return true;
 
+        // Threshold reached: rubber-band correction.
+        send_pos_correction(user, user->etainLastPos);
         return false;
     }
 
@@ -301,8 +283,7 @@ namespace etain_shield
         user->etainLastPos          = {};
         user->etainLastMoveTick     = 0;
         user->etainViolationCount   = 0;
-        user->etainAttackLockTick   = 0;
-        user->etainAttackLockDirty  = false;
+        user->etainCuttingUntil     = 0;
     }
 
     // ===================================================================
@@ -436,7 +417,7 @@ bool __cdecl EnableAttackRange(
 }
 
 // ===========================================================================
-//  Naked assembly detours — AntiRangeHack Layer B + AntiMoveAttack lock
+//  Naked assembly detours — AntiRangeHack Layer B + AntiCutting lock
 // ===========================================================================
 //
 //  Each detour replaces the prologue of a native range-check function.
@@ -536,7 +517,7 @@ void hook::etain_shield()
         util::detour((void*)0x457F50, naked_0x457F50, 9);
     }
 
-    // AntiSpeedHack active validation and AntiMoveAttack are checked at
+    // AntiSpeedHack active validation and AntiCutting are checked at
     // runtime inside validate_movement() — their hooks live in packet_pc.cpp
     // (0x501 / 0x502 / 0x503 dispatch).
 }

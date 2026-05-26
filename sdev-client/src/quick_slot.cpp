@@ -14,14 +14,6 @@ namespace quick_slot
 {
     const char* get_interface_data_path()
     {
-        char buffer[16]{};
-        GetPrivateProfileStringA("ADVANCED", "UI", "", buffer, static_cast<DWORD>(sizeof(buffer)), g_var->iniFileName.data());
-        if (buffer[0] == '\0')
-            GetPrivateProfileStringA("CONFIG", "UI", "0", buffer, static_cast<DWORD>(sizeof(buffer)), g_var->iniFileName.data());
-
-        auto level = std::atoi(buffer);
-        if (level == 2) return "data/intf_epi8";
-        if (level == 1) return "data/intf_epi6";
         return "data/interface";
     }
 

@@ -220,6 +220,71 @@ void Configuration::LoadBattlefieldMoveData()
     }
 }
 
+void Configuration::LoadTeleportDestinations()
+{
+    g_teleportDestinations.clear();
+
+    try
+    {
+        std::filesystem::path path(m_root);
+        ext::filesystem::combine(path, "Data", "Teleport.ini");
+
+        if (!std::filesystem::exists(path))
+            return;
+
+        auto count = static_cast<int>(util::ini::get_value(L"TELEPORT_INFO", L"DESTINATION_COUNT", 0, path));
+        if (count <= 0)
+            return;
+
+        g_teleportDestinations.reserve(count);
+
+        for (int num = 1; num <= count; ++num)
+        {
+            auto section = std::format(L"DESTINATION_{}", num);
+
+            TeleportDestination dest{};
+
+            auto nameW = util::ini::get_value(section.c_str(), L"NAME", L"", path);
+            for (auto ch : nameW)
+                dest.name.push_back(static_cast<char>(ch & 0x7F));
+
+            if (dest.name.empty())
+                continue;
+
+            dest.levelMin = static_cast<int>(util::ini::get_value(section.c_str(), L"LEVEL_MIN", 0, path));
+            dest.levelMax = static_cast<int>(util::ini::get_value(section.c_str(), L"LEVEL_MAX", 0, path));
+
+            // Light faction (family 0)
+            dest.factionData[0].mapId = static_cast<int>(util::ini::get_value(section.c_str(), L"MAP_LIGHT", -1, path));
+            auto lx = util::ini::get_value(section.c_str(), L"POSX_LIGHT", L"0", path);
+            auto ly = util::ini::get_value(section.c_str(), L"POSY_LIGHT", L"0", path);
+            auto lz = util::ini::get_value(section.c_str(), L"POSZ_LIGHT", L"0", path);
+            dest.factionData[0].x = std::stof(lx);
+            dest.factionData[0].y = std::stof(ly);
+            dest.factionData[0].z = std::stof(lz);
+
+            // Fury faction (family 1)
+            dest.factionData[1].mapId = static_cast<int>(util::ini::get_value(section.c_str(), L"MAP_FURY", -1, path));
+            auto fx = util::ini::get_value(section.c_str(), L"POSX_FURY", L"0", path);
+            auto fy = util::ini::get_value(section.c_str(), L"POSY_FURY", L"0", path);
+            auto fz = util::ini::get_value(section.c_str(), L"POSZ_FURY", L"0", path);
+            dest.factionData[1].x = std::stof(fx);
+            dest.factionData[1].y = std::stof(fy);
+            dest.factionData[1].z = std::stof(fz);
+
+            // At least one faction must have a valid map
+            if (dest.factionData[0].mapId < 0 && dest.factionData[1].mapId < 0)
+                continue;
+
+            g_teleportDestinations.push_back(std::move(dest));
+        }
+    }
+    catch (...)
+    {
+        g_teleportDestinations.clear();
+    }
+}
+
 void Configuration::LoadItemSetData()
 {
     g_itemSets.clear();
@@ -622,32 +687,14 @@ void Configuration::LoadEtainShield()
         g_etainConfig.speedHackEnabled =
             util::ini::get_value(L"AntiSpeedHack", L"Enabled", 1, path) != 0;
 
-        auto c1 = util::ini::get_value(L"AntiSpeedHack", L"Const1", L"10.0", path);
-        g_etainConfig.speedConst1 = std::stod(c1);
+        auto mof = util::ini::get_value(L"AntiSpeedHack", L"MaxSpeedOnFoot", L"12.5", path);
+        g_etainConfig.speedMaxOnFoot = std::stof(mof);
 
-        auto c2 = util::ini::get_value(L"AntiSpeedHack", L"Const2", L"0.13", path);
-        g_etainConfig.speedConst2 = std::stof(c2);
-
-        auto c3 = util::ini::get_value(L"AntiSpeedHack", L"Const3", L"3.0", path);
-        g_etainConfig.speedConst3 = std::stof(c3);
-
-        auto c4 = util::ini::get_value(L"AntiSpeedHack", L"Const4", L"2.0", path);
-        g_etainConfig.speedConst4 = std::stod(c4);
-
-        auto tol = util::ini::get_value(L"AntiSpeedHack", L"Tolerance", L"1.25", path);
-        g_etainConfig.speedTolerance = std::stof(tol);
+        auto mm = util::ini::get_value(L"AntiSpeedHack", L"MaxSpeedMounted", L"13.5", path);
+        g_etainConfig.speedMaxMounted = std::stof(mm);
 
         g_etainConfig.speedViolationThreshold = static_cast<uint8_t>(
-            util::ini::get_value(L"AntiSpeedHack", L"ViolationLimit", 3, path));
-
-        g_etainConfig.speedMinTickDelta = static_cast<uint32_t>(
-            util::ini::get_value(L"AntiSpeedHack", L"MinTickDelta", 50, path));
-
-        auto fd = util::ini::get_value(L"AntiSpeedHack", L"FreeDistance", L"5.0", path);
-        g_etainConfig.speedFreeDistance = std::stof(fd);
-
-        auto tt = util::ini::get_value(L"AntiSpeedHack", L"TeleportThreshold", L"300.0", path);
-        g_etainConfig.speedTeleportThreshold = std::stof(tt);
+            util::ini::get_value(L"AntiSpeedHack", L"ViolationLimit", 5, path));
 
         // [AntiRangeHack]
         g_etainConfig.rangeHackEnabled =
@@ -659,15 +706,15 @@ void Configuration::LoadEtainShield()
         g_etainConfig.rangeMovingGrace = static_cast<int>(
             util::ini::get_value(L"AntiRangeHack", L"MovingGrace", 5, path));
 
-        // [AntiMoveAttack]
-        g_etainConfig.moveAttackEnabled =
-            util::ini::get_value(L"AntiMoveAttack", L"Enabled", 1, path) != 0;
+        // [AntiCutting]
+        g_etainConfig.cuttingEnabled =
+            util::ini::get_value(L"AntiCutting", L"Enabled", 1, path) != 0;
 
-        g_etainConfig.moveAttackMinLockMs = static_cast<uint32_t>(
-            util::ini::get_value(L"AntiMoveAttack", L"MinLockMs", 600, path));
+        g_etainConfig.cuttingLockMs = static_cast<uint32_t>(
+            util::ini::get_value(L"AntiCutting", L"LockMs", 500, path));
 
-        auto skipStr = util::ini::get_value(L"AntiMoveAttack", L"SkipSkillIds", L"56", path);
-        g_etainConfig.moveAttackSkipSkills.clear();
+        auto skipStr = util::ini::get_value(L"AntiCutting", L"SkipSkillIds", L"56", path);
+        g_etainConfig.cuttingSkipSkills.clear();
         if (!skipStr.empty())
         {
             size_t pos = 0;
@@ -677,7 +724,7 @@ void Configuration::LoadEtainShield()
                 if (next == std::wstring::npos) next = skipStr.size();
                 auto token = skipStr.substr(pos, next - pos);
                 if (!token.empty())
-                    g_etainConfig.moveAttackSkipSkills.push_back(std::stoi(token));
+                    g_etainConfig.cuttingSkipSkills.push_back(std::stoi(token));
                 pos = next + 1;
             }
         }

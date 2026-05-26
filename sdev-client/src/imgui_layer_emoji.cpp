@@ -19,6 +19,12 @@ namespace imgui_layer
 {
     bool is_emoji_transition_grace_active()
     {
+        // Delegate map-change detection to the central frame-based debounce
+        // (kMinStableFrames).  Keep the scene-lost grace (kEmojiSceneGraceMs)
+        // for login/character-select transitions.
+        if (is_map_transition_active())
+            return true;
+
         return g_emojiMapGraceUntilTick != 0
             && static_cast<int32_t>(GetTickCount() - g_emojiMapGraceUntilTick) < 0;
     }
@@ -92,8 +98,10 @@ namespace imgui_layer
         if (mapId != 0 && g_lastEmojiMapId != 0 && mapId != g_lastEmojiMapId)
         {
             g_lastEmojiMapId = mapId;
-            g_emojiMapGraceUntilTick = now + kEmojiMapChangeGraceMs;
-            g_emojiSceneTransitionUntilTick = now + kEmojiMapChangeGraceMs;
+            // Don't set g_emojiMapGraceUntilTick — the central frame-based
+            // debounce (is_map_transition_active / kMinStableFrames) now
+            // handles suppression.  We still clear stale overlays and close
+            // the picker since their world positions are invalidated.
             g_showEmojiPicker = false;
             clear_emoji_text_overlays();
         }
@@ -280,6 +288,12 @@ namespace imgui_layer
                     g_npcIconFound = true;
                     g_npcIconDataOffset = entry.offset;
                     g_npcIconDataSize = entry.size;
+                }
+                else if (entry.lowerFileName == "teleporticon.png" && !g_teleportIconFound)
+                {
+                    g_teleportIconFound = true;
+                    g_teleportIconDataOffset = entry.offset;
+                    g_teleportIconDataSize = entry.size;
                 }
             }
         });

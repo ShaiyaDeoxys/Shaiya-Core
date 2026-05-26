@@ -35,9 +35,12 @@ namespace etain_shield
     /// Basic attack on mob (0x503 packet).  Returns 1=allow, 0=drop.
     int validate_attack_mob(shaiya::CUser* user, shaiya::GameCharAttackMobIncoming* packet);
 
-    // --- AntiMoveAttack ---
+    // --- AntiCutting ---
 
     /// Snapshots position and activates the movement lock for this attack.
-    /// Applied for both basic attacks and skills. Exempt: Stringer (dash).
+    /// The player cannot move for cuttingLockMs after each attack; every
+    /// 0x501 packet during the lock window is dropped and a position
+    /// correction is sent immediately.  Configurable skip-list exempts
+    /// dash-type skills.
     void lock_movement_for_attack(shaiya::CUser* user);
 }

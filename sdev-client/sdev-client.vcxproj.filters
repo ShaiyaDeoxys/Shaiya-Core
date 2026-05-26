@@ -295,6 +295,9 @@
     <ClCompile Include="src\main_stats.cpp">
       <Filter>src</Filter>
     </ClCompile>
+    <ClCompile Include="src\imgui_layer_teleport.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
     <ClCompile Include="src\name_color.cpp">
       <Filter>src</Filter>
     </ClCompile>

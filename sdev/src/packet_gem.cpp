@@ -788,9 +788,10 @@ namespace packet_gem
     }
 
     /// <summary>
-    /// Handles incoming 0x833 packets. This feature will not be implemented.
+    /// Free synthesis is intentionally unsupported; the packet is consumed so
+    /// the stock handler cannot process an unsupported client request.
     /// </summary>
-    void handler_0x833(CUser* user, GameItemFreeSynthesisIncoming* incoming)
+    void handler_0x833(CUser*, GameItemFreeSynthesisIncoming*)
     {
     }
 
@@ -893,6 +894,16 @@ namespace packet_gem
         case 0x835:
         {
             roulette::handle_spin(user);
+            break;
+        }
+        case 0x838:
+        {
+            packet_main_interface::handler_0x838(user);
+            break;
+        }
+        case 0x839:
+        {
+            packet_main_interface::handler_0x839(user, reinterpret_cast<GameTeleportMoveIncoming*>(packet));
             break;
         }
         default:

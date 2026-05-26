@@ -16,6 +16,7 @@ The server resolves paths from the game service executable directory, then the `
 
 - `Data/ServerConfig.ini`: global limits such as enchant cap and level cap.
 - `Data/BattleFieldMoveInfo.ini`: battleground level ranges and destination coordinates.
+- `Data/Teleport.ini`: named remote-teleport destinations, level gates, and faction-specific coordinates.
 - `Data/SetItem.SData`: decrypted server-side item set synergy data.
 - `Data/ChaoticSquare.ini`: item synthesis and chaotic square recipes.
 - `Data/RewardItem.ini`: timed reward item event list.
@@ -30,6 +31,7 @@ All active server features are installed from `src/main.cpp`.
 Configuration::Init();
 Configuration::LoadServerConfig();
 Configuration::LoadBattlefieldMoveData();
+Configuration::LoadTeleportDestinations();
 Configuration::LoadEtainShield();
 hook::etain_shield();
 hook::item_effect();
@@ -44,7 +46,9 @@ hook::packet_party();
 hook::packet_pc();
 hook::packet_quest();
 hook::raid_150();
-hook::packet_reward_item();
+if (Configuration::RewardBarEnabled)
+    hook::packet_reward_item();
+hook::on_enter_world();
 hook::packet_shop();
 hook::user_equipment();
 hook::user_shape();
@@ -53,8 +57,10 @@ hook::user_status();
 hook::world_thread();
 Configuration::LoadItemSetData();
 Configuration::LoadItemSynthesis();
-Configuration::LoadRewardItemEvent();
-Configuration::LoadRoulette();
+if (Configuration::RewardBarEnabled)
+    Configuration::LoadRewardItemEvent();
+if (Configuration::RouletteEnabled)
+    Configuration::LoadRoulette();
 ```
 
 ## Feature Catalog
@@ -74,6 +80,7 @@ Configuration::LoadRoulette();
 - `RewardBar` defaults to `1`. When `0`, the reward item event system is disabled.
 - `Roulette` defaults to `1`. When `0`, the roulette system is disabled.
 - `BattleFieldMoveInfo.ini` maps a level range to one destination per family: Human, Elf, Death Eater, and Vail.
+- `Teleport.ini` maps named remote-teleport destinations with optional level gates and separate Light/Fury coordinates.
 - `SetItem.SData` loads decrypted set bonuses and refreshes server-side synergy tables.
 - `ChaoticSquare.ini` loads item synthesis recipes and chaotic-square result tables.
 - `RewardItem.ini` loads the timed account reward list.
@@ -85,15 +92,15 @@ Configuration::LoadRoulette();
 - Validates packet lengths, fixed-string lengths, inventory coordinates, and user/item pointers in custom handlers.
 - Guards outgoing packet sends through helper checks.
 - Rejects malformed equipment and inventory actions before stock code can read invalid memory.
-- Keeps unsupported mailbox handling disabled; the mailbox hook is not installed.
+- Keeps unsupported mailbox handling disabled; no mailbox hook is installed.
 
 ### EtainShield (Anticheat)
 
 Server-side anticheat module configured via `Data/EtainShield.ini`. Each protection has an independent enable/disable toggle and tunable parameters. A global master switch disables all protections at once.
 
-- **AntiSpeedHack**: patches four timing constants in the ps_game.exe data section to tighten the native speed-validation window, then validates every `0x501` movement packet against the player's `abilityMoveSpeed` stat. Violations accumulate; exceeding the threshold teleports the player back to their last valid position.
+- **AntiSpeedHack**: patches four native timing constants and validates every `0x501` movement packet using calibrated speed ceilings measured server-side (12.5 units/s on foot, 13.5 mounted). Mounted state is detected via `CUser::vehicleStatus`. Consecutive violations are forgiven up to the configured threshold to absorb latency spikes; repeated violations trigger a position correction. Reliably detects speed hacks at 1.1x and above.
 - **AntiRangeHack**: computes the real 2D euclidean distance from server-side positions for every attack. Basic attack packets (`0x502`/`0x503`) are intercepted in the opcode dispatch; skill attacks are caught by detours on the native PVE (`0x458000`) and PVP (`0x457F50`) range-check functions. Out-of-range attacks are rejected immediately.
-- **AntiMoveAttack**: blocks movement packets while the server considers the player to be in an attack (`CUser::attackType != None`). A 5-second safety timeout prevents permanent freezes. A single position correction is sent only if a hacked client actually attempted movement during the lock window; legitimate clients are never affected.
+- **AntiCutting**: freezes player movement for a configurable duration (default 500 ms) after each attack. Every `0x501` movement packet received during the lock window is silently dropped — the server simply does not update the player's position. The lock renews on each subsequent attack in a chain. Configurable skill-ID skip-list exempts dash-type skills from the lock.
 
 ### Cross-Faction And Social
 
@@ -189,6 +196,7 @@ Server-side anticheat module configured via `Data/EtainShield.ini`. Each protect
 - `0x711`: sends EP6.4 warehouse item units in chunks under the 2048-byte packet limit.
 - `0x407` and `0x1F00`: tracks reward item event progress and sends reward availability/result packets.
 - `0x834` and `0x835`: sends roulette configuration and handles roulette spins.
+- `0x838` and `0x839`: sends configured remote-teleport destinations and handles movement requests.
 - `0x233`: handles battleground movement requests from the client.
 - `0x55A`: handles town move scroll requests with gate validation.
 - `0x230B`: converts personal shop item lists to EP6.4 units.
@@ -205,6 +213,14 @@ Server-side anticheat module configured via `Data/EtainShield.ini`. Each protect
 - The request does not consume an item; saved item-use bag, slot, and index are cleared before scheduling movement.
 - MyShop is ended and current actions are cancelled before the cast starts.
 
+### Remote Teleport
+
+- Packet `0x838` sends the configured destination list to the client.
+- Packet `0x839` validates the selected destination, level range, faction coordinates, current map, death state, and busy state.
+- Valid movement requests reuse the same 5 second cast/update path as town move scrolls and battleground movement.
+- The request does not consume an item; saved item-use bag, slot, and index are cleared before scheduling movement.
+- MyShop is ended and current actions are cancelled before the cast starts.
+
 ### Quests And Rewards
 
 - Supports EP6 quest-end packet `0x903`.
@@ -212,6 +228,7 @@ Server-side anticheat module configured via `Data/EtainShield.ini`. Each protect
 - Sends game-log quest-end entries for awarded items.
 - Adds EXP and money through stock server helpers.
 - Runs reward item event checks every three seconds from `CWorldThread::Update`.
+- Sends reward item and roulette feature data when the user enters the world, when those systems are enabled.
 - Tracks reward event progress by account user id.
 
 ### Roulette
@@ -263,22 +280,19 @@ Enabled=1
 
 [AntiSpeedHack]
 Enabled=1
-Const1=10.0
-Const2=0.13
-Const3=3.0
-Const4=2.0
-Tolerance=1.25
-ViolationLimit=3
-MinTickDelta=50
-FreeDistance=5.0
-TeleportThreshold=300.0
+MaxSpeedOnFoot=12.5
+MaxSpeedMounted=13.5
+ViolationLimit=5
 
 [AntiRangeHack]
 Enabled=1
 Margin=4
+MovingGrace=5
 
-[AntiMoveAttack]
+[AntiCutting]
 Enabled=1
+LockMs=500
+SkipSkillIds=56
 ```
 
 ### ServerConfig.ini
@@ -330,6 +344,26 @@ TypeID=2
 Count=1
 ```
 
+### Teleport.ini
+
+```ini
+[TELEPORT_INFO]
+DESTINATION_COUNT=1
+
+[DESTINATION_1]
+NAME=Auction House
+LEVEL_MIN=1
+LEVEL_MAX=70
+MAP_LIGHT=42
+POSX_LIGHT=50
+POSY_LIGHT=0
+POSZ_LIGHT=50
+MAP_FURY=42
+POSX_FURY=60
+POSY_FURY=0
+POSZ_FURY=60
+```
+
 ### ChaoticSquare.ini
 
 ```ini
@@ -348,6 +382,7 @@ NewItemCount=1
 
 - `sdev-client` provides the ImGui roulette module that sends packets `0x834` and `0x835`.
 - `sdev-client` provides the battleground button that sends packet `0x233`.
+- `sdev-client` provides the remote teleport UI that sends packets `0x838` and `0x839`.
 - `sdev-client` provides the five-page raid UI for the server raid-150 patch.
 - `sdev-client` accepts recreation rune effects `220..240` in the blacksmith window; `sdev` applies the server mutation.
 - Emoji and GIF chat tokens are client-rendered only. The server receives and forwards normal chat text.

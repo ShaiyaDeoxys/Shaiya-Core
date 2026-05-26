@@ -18,7 +18,7 @@
 // Master toggle for the entire Unicode/UTF-8 feature.
 // Set to false to completely disable Unicode window creation, UTF-8 textbox
 // input, and all related patches. The client will behave as stock ANSI.
-constexpr bool kEnableUnicode = true;
+constexpr bool kEnableUnicode = false;
 
 namespace
 {

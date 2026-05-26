@@ -114,6 +114,11 @@ namespace imgui_layer
 
     bool is_game_scene()
     {
+        // Primary gate: the game screen state address is the most reliable
+        // indicator.  Values: 3=char select, 5=loading, 6=in-game.
+        if (*reinterpret_cast<const int*>(kGameScreenStateAddr) != kScreenStateInGame)
+            return false;
+
         return g_pWorldMgr->user != nullptr
             && g_pWorldMgr->mapSize > 0
             && g_pPlayerData->charId != 0;
@@ -121,16 +126,33 @@ namespace imgui_layer
 
     void sync_map_transition_state()
     {
-        auto mapId = g_pPlayerData->mapId;
-        if (g_mapTransLastMapId != 0 && mapId != 0 && mapId != g_mapTransLastMapId)
-            g_mapTransGraceUntilTick = GetTickCount() + kMapTransitionGraceMs;
-        g_mapTransLastMapId = mapId;
+        // --- Native UI visibility (F11 toggle) ---
+        // Track F11 press to toggle our overlay in sync with the game's
+        // native UI hide/show.  We mirror the game's own toggle so both
+        // native elements and our ImGui overlay disappear together.
+        static bool f11WasDown = false;
+        if (consume_toggle(VK_F11, f11WasDown))
+            g_nativeUIHidden = !g_nativeUIHidden;
+
+        // --- Frame debounce ---
+        // The game screen state at 0x7C48F8 goes to 5 during loading and
+        // back to 6 only when the world is fully loaded, so there is no need
+        // for a timed cooldown.  We just count consecutive in-game frames to
+        // avoid a single-frame flicker right on the transition edge.
+        if (!is_game_scene())
+        {
+            g_sceneStableFrames = 0;
+            return;
+        }
+
+        if (g_sceneStableFrames < kMinStableFrames + 1)
+            ++g_sceneStableFrames;
     }
+
 
     bool is_map_transition_active()
     {
-        return g_mapTransGraceUntilTick != 0
-            && static_cast<int32_t>(GetTickCount() - g_mapTransGraceUntilTick) < 0;
+        return g_sceneStableFrames < kMinStableFrames;
     }
 
     bool is_game_scene_stable()
@@ -151,6 +173,7 @@ namespace imgui_layer
         g_rouletteButtonPosition = ImVec2(x + kButtonAnchorStride, y);
         g_settingsButtonPosition = ImVec2(x + kButtonAnchorStride * 2, y);
         g_npcButtonPosition      = ImVec2(x + kButtonAnchorStride * 3, y);
+        g_teleportButtonPosition = ImVec2(x + kButtonAnchorStride * 4, y);
     }
 
     bool is_overlay_display_usable(const ImVec2& size)
@@ -471,6 +494,7 @@ namespace imgui_layer
         release_texture(g_rouletteIconTexture, g_rouletteIconLoadAttempted);
         release_texture(g_settingsIconTexture, g_settingsIconLoadAttempted);
         release_texture(g_npcIconTexture, g_npcIconLoadAttempted);
+        release_texture(g_teleportIconTexture, g_teleportIconLoadAttempted);
     }
 
     void init_game_imgui(IDirect3DDevice9* device)
@@ -505,6 +529,8 @@ namespace imgui_layer
         g_settingsPanelRect = {};
         g_npcButtonRect = {};
         g_npcPanelRect = {};
+        g_teleportButtonRect = {};
+        g_teleportPanelRect = {};
 
         // Hook DirectInput mouse polling so clicks are suppressed at the
         // earliest point in the game loop when ImGui owns the cursor.
@@ -626,43 +652,67 @@ namespace imgui_layer
         g_settingsPanelRect = {};
         g_npcButtonRect = {};
         g_npcPanelRect = {};
+        g_teleportButtonRect = {};
+        g_teleportPanelRect = {};
         ensure_emoji_catalog_loaded();
 
-        if (g_emojisEnabled)
+        // Pre-cache overlay textures right after the SAH catalog scan so
+        // the first panel open doesn't stall the frame with file I/O.
+        // Each loader is internally guarded by loadAttempted, so this is
+        // a no-op on every frame after the first.
+        load_roulette_bg_texture();
+        load_roulette_icon_texture();
+        load_reward_icon_texture();
+        load_settings_icon_texture();
+        load_npc_icon_texture();
+        load_teleport_icon_texture();
+
+        // When the native UI is hidden (F11), suppress all overlay drawing
+        // so our elements disappear in sync with the game's own UI.
+        if (!g_nativeUIHidden)
         {
-            draw_floating_emoji_overlays();
-            draw_lower_chat_emoji_overlay();
-        }
-
-        // Emoji button + picker always visible so the user can re-toggle
-        draw_emoji_overlay();
-
-        if (is_game_scene_stable())
-        {
-            update_anchored_button_positions();
-            if (roulette_event::hasList)
-                draw_roulette_button_overlay();
-            if (reward_item_event::hasList)
-                draw_reward_button_overlay();
-            draw_settings_button_overlay();
-            draw_npc_button_overlay();
-        }
-
-        debug_panel::render();
-        custom_chat::render_ingame_chat();
-
-        if (g_showPanel)
-            draw_panel_shell();
-
-        if (is_game_scene_stable())
-        {
-            if (reward_item_event::hasList)
+            if (g_emojisEnabled)
             {
-                draw_reward_bar();
-                update_reward_auto_claim();
+                draw_floating_emoji_overlays();
+                draw_lower_chat_emoji_overlay();
             }
-            draw_settings_panel();
-            draw_npc_panel();
+
+            // Emoji button + picker always visible so the user can re-toggle
+            draw_emoji_overlay();
+
+            if (is_game_scene_stable())
+            {
+                update_anchored_button_positions();
+                if (roulette_event::hasList)
+                    draw_roulette_button_overlay();
+                if (reward_item_event::hasList)
+                    draw_reward_button_overlay();
+                draw_settings_button_overlay();
+                draw_npc_button_overlay();
+
+                // Request the teleport destination list once per login.
+                if (!teleport_event::listReceived)
+                    request_teleport_list();
+                draw_teleport_button_overlay();
+            }
+
+            debug_panel::render();
+            custom_chat::render_ingame_chat();
+
+            if (g_showPanel)
+                draw_panel_shell();
+
+            if (is_game_scene_stable())
+            {
+                if (reward_item_event::hasList)
+                {
+                    draw_reward_bar();
+                    update_reward_auto_claim();
+                }
+                draw_settings_panel();
+                draw_npc_panel();
+                draw_teleport_panel();
+            }
         }
 
         ImGui::EndFrame();
@@ -676,6 +726,11 @@ namespace imgui_layer
         auto* drawData = ImGui::GetDrawData();
         if (drawData && drawData->CmdListsCount > 0)
             ImGui_ImplDX9_RenderDrawData(drawData);
+
+        // Flush D3DX text runs AFTER ImGui so native-font text renders on
+        // top of the ImGui layer (emoji texture quads stay behind text).
+        if (!g_nativeUIHidden)
+            custom_chat::flush_d3dx_text();
 
         save_imgui_settings_if_dirty(750);
     }

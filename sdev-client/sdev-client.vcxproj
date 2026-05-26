@@ -19,7 +19,7 @@
     <ClInclude Include="src\include\game_data_archive.h" />
     <ClInclude Include="src\include\game_addresses.h" />
     <ClInclude Include="src\include\imgui_layer_internal.h" />
-    <ClInclude Include="src\include\ep4_ui.h" />
+    <ClInclude Include="src\include\interface_hooks.h" />
     <ClInclude Include="src\include\stat_color.h" />
     <ClInclude Include="src\include\interface_redirect.h" />
     <ClInclude Include="src\include\server_selection.h" />
@@ -135,7 +135,7 @@
     <ClCompile Include="src\discord.cpp" />
     <ClCompile Include="src\dllmain.cpp" />
     <ClCompile Include="src\equipment.cpp" />
-    <ClCompile Include="src\ep4_ui.cpp" />
+    <ClCompile Include="src\interface_hooks.cpp" />
     <ClCompile Include="src\stat_color.cpp" />
     <ClCompile Include="src\ep6_repo_features.cpp" />
     <ClCompile Include="src\exp_view.cpp" />
@@ -147,6 +147,7 @@
     <ClCompile Include="src\imgui_layer_roulette.cpp" />
     <ClCompile Include="src\imgui_layer_reward.cpp" />
     <ClCompile Include="src\imgui_layer_settings.cpp" />
+    <ClCompile Include="src\imgui_layer_teleport.cpp" />
     <ClCompile Include="src\input.cpp" />
     <ClCompile Include="src\interface_redirect.cpp" />
     <ClCompile Include="src\item_icon.cpp" />

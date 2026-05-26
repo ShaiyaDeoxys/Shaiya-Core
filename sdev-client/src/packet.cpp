@@ -7,6 +7,7 @@
 #include "include/shaiya/CCharacter.h"
 #include "include/shaiya/RewardItemEvent.h"
 #include "include/shaiya/Roulette.h"
+#include "include/shaiya/Teleport.h"
 #include "include/shaiya/Static.h"
 using namespace shaiya;
 
@@ -15,6 +16,7 @@ namespace packet
     // Forward declarations
     void scan_roulette_packets(const char* buffer, int length);
     void scan_reward_item_packets(const char* buffer, int length);
+    void scan_teleport_packets(const char* buffer, int length);
     void handler_0x1F01(GameRewardItemGetResultOutgoing* incoming);
     void handler_0x1F03(GameRewardItemListOutgoing* incoming);
     void handler_0x1F04(GameRewardItemGetOutgoing* incoming);
@@ -387,11 +389,97 @@ namespace packet
         }
     }
 
+    // =======================================================================
+    //  Teleport handlers (opcodes 0x838 – 0x839)
+    // =======================================================================
+
+    void handler_0x838(const GameTeleportListOutgoing* incoming)
+    {
+        auto count = incoming->count;
+        if (count > kTeleportMaxDestinations)
+            count = kTeleportMaxDestinations;
+
+        teleport_event::destinationCount = count;
+        teleport_event::destinations = {};
+
+        for (uint8_t i = 0; i < count; ++i)
+            teleport_event::destinations[i] = incoming->entries[i];
+
+        teleport_event::hasList = count > 0;
+        teleport_event::listReceived = true;
+    }
+
+    void handler_0x839(const GameTeleportMoveOutgoing* incoming)
+    {
+        teleport_event::lastMoveRequested = true;
+        teleport_event::lastMoveResult = incoming->result;
+        teleport_event::lastMoveResultTick = GetTickCount();
+    }
+
+    void handle_teleport_packet(const void* data, int length)
+    {
+        if (!data || length < static_cast<int>(sizeof(uint16_t)))
+            return;
+
+        auto opcode = *reinterpret_cast<const uint16_t*>(data);
+        switch (opcode)
+        {
+        case 0x838:
+        {
+            // Variable-length: header (opcode + count) + count * entry size
+            auto minSize = static_cast<int>(offsetof(GameTeleportListOutgoing, entries));
+            if (length >= minSize)
+                handler_0x838(reinterpret_cast<const GameTeleportListOutgoing*>(data));
+            break;
+        }
+        case 0x839:
+            if (length >= static_cast<int>(sizeof(GameTeleportMoveOutgoing)))
+                handler_0x839(reinterpret_cast<const GameTeleportMoveOutgoing*>(data));
+            break;
+        default:
+            break;
+        }
+    }
+
+    void handle_teleport_dispatch(uint16_t opcode, void* packet)
+    {
+        switch (opcode)
+        {
+        case 0x838:
+            if (packet)
+                handler_0x838(reinterpret_cast<const GameTeleportListOutgoing*>(packet));
+            break;
+        case 0x839:
+            if (packet)
+                handler_0x839(reinterpret_cast<const GameTeleportMoveOutgoing*>(packet));
+            break;
+        default:
+            break;
+        }
+    }
+
+    void scan_teleport_packets(const char* buffer, int length)
+    {
+        if (!buffer || length < static_cast<int>(sizeof(uint16_t)))
+            return;
+
+        for (int offset = 0; offset <= length - static_cast<int>(sizeof(uint16_t)); ++offset)
+        {
+            auto opcode = *reinterpret_cast<const uint16_t*>(buffer + offset);
+            if (opcode == 0x838 || opcode == 0x839)
+            {
+                handle_teleport_packet(buffer + offset, length - offset);
+                break;
+            }
+        }
+    }
+
     void handle_normalized_packet(void* packet)
     {
         auto* buf = reinterpret_cast<const char*>(packet);
         scan_roulette_packets(buf, 0x78);
         scan_reward_item_packets(buf, 0x78);
+        scan_teleport_packets(buf, 0x78);
     }
 }
 
@@ -522,6 +610,10 @@ void __declspec(naked) naked_0x5F1E10()
         je reward_item_packet
         cmp eax,0x1F06
         je reward_item_packet
+        cmp eax,0x838
+        je teleport_packet
+        cmp eax,0x839
+        je teleport_packet
 
         popad
         mov edx,dword ptr [esp+0x4]
@@ -543,6 +635,16 @@ void __declspec(naked) naked_0x5F1E10()
         push ecx
         push eax
         call packet::handle_reward_item_dispatch
+        add esp,0x8
+
+        popad
+        ret
+
+        teleport_packet:
+        mov ecx,dword ptr [esp+0x28]
+        push ecx
+        push eax
+        call packet::handle_teleport_dispatch
         add esp,0x8
 
         popad

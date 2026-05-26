@@ -119,6 +119,10 @@ namespace imgui_layer {
         g_npcButtonPosition.y = read_imgui_float(kNpcBtnYKey, g_npcButtonPosition.y);
         g_npcPanelPosition.x = read_imgui_float(kNpcPanelXKey, -1.0f);
         g_npcPanelPosition.y = read_imgui_float(kNpcPanelYKey, -1.0f);
+        g_teleportButtonPosition.x = read_imgui_float(kTeleportBtnXKey, g_teleportButtonPosition.x);
+        g_teleportButtonPosition.y = read_imgui_float(kTeleportBtnYKey, g_teleportButtonPosition.y);
+        g_teleportPanelPosition.x = read_imgui_float(kTeleportPanelXKey, -1.0f);
+        g_teleportPanelPosition.y = read_imgui_float(kTeleportPanelYKey, -1.0f);
         g_rewardAutoClaimEnabled = read_imgui_bool(kRewardAutoClaimKey, false);
         g_imguiSettingsLoaded = true;
     }
@@ -141,6 +145,10 @@ namespace imgui_layer {
         write_imgui_float(kNpcBtnYKey, g_npcButtonPosition.y);
         write_imgui_float(kNpcPanelXKey, g_npcPanelPosition.x);
         write_imgui_float(kNpcPanelYKey, g_npcPanelPosition.y);
+        write_imgui_float(kTeleportBtnXKey, g_teleportButtonPosition.x);
+        write_imgui_float(kTeleportBtnYKey, g_teleportButtonPosition.y);
+        write_imgui_float(kTeleportPanelXKey, g_teleportPanelPosition.x);
+        write_imgui_float(kTeleportPanelYKey, g_teleportPanelPosition.y);
         write_imgui_bool(kRewardAutoClaimKey, g_rewardAutoClaimEnabled);
         g_imguiSettingsDirty = false;
         g_lastPanelSaveTick = GetTickCount();

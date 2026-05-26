@@ -302,4 +302,19 @@ namespace shaiya
         uint16_t opcode{ 0x835 };
     };
     #pragma pack(pop)
+
+    #pragma pack(push, 1)
+    struct GameTeleportListIncoming
+    {
+        uint16_t opcode{ 0x838 };
+    };
+    #pragma pack(pop)
+
+    #pragma pack(push, 1)
+    struct GameTeleportMoveIncoming
+    {
+        uint16_t opcode{ 0x839 };
+        uint8_t index;
+    };
+    #pragma pack(pop)
 }

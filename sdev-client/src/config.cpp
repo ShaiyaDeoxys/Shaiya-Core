@@ -38,17 +38,6 @@ namespace
         return GetPrivateProfileIntA("ADVANCED", "SKIPMODESELECTION", 1, iniPath.c_str()) != 0;
     }
 
-    int load_custom_ui_level()
-    {
-        auto& iniPath = config::ini_path();
-        char buffer[16]{};
-        GetPrivateProfileStringA("ADVANCED", "UI", "", buffer, static_cast<DWORD>(sizeof(buffer)), iniPath.c_str());
-        if (buffer[0] == '\0')
-            GetPrivateProfileStringA("CONFIG", "UI", "0", buffer, static_cast<DWORD>(sizeof(buffer)), iniPath.c_str());
-
-        return std::atoi(buffer);
-    }
-
     bool load_imgui_overlay_setting()
     {
         auto& iniPath = config::ini_path();
@@ -138,11 +127,6 @@ void __declspec(naked) naked_0x4E6D76()
 
 namespace config
 {
-    int load_custom_ui()
-    {
-        return load_custom_ui_level();
-    }
-
     bool load_imgui_overlay()
     {
         return load_imgui_overlay_setting();

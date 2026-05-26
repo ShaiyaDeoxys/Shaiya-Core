@@ -13,6 +13,14 @@ namespace packet_gem
     int use_item_ability_transfer(shaiya::CUser* user, int bag, int slot);
 }
 
+namespace shaiya { struct GameTeleportMoveIncoming; }
+
+namespace packet_main_interface
+{
+    void handler_0x838(shaiya::CUser* user);
+    void handler_0x839(shaiya::CUser* user, shaiya::GameTeleportMoveIncoming* packet);
+}
+
 namespace hook
 {
     void etain_shield();
@@ -21,7 +29,6 @@ namespace hook
     void packet_character();
     void packet_exchange();
     void packet_gem();
-    void packet_mailbox();
     void packet_main_interface();
     void packet_market();
     void packet_myshop();

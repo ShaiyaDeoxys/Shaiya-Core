@@ -463,11 +463,9 @@ namespace shaiya
         uint8_t etainViolationCount;             //0x6304  consecutive violations
         PAD(3);                                  //0x6305  alignment padding
 
-        // EtainShield — attack movement lock per-user state
-        tick32_t etainAttackLockTick;            //0x6308  when the lock was set (0 = no lock)
-        SVector etainAttackLockPos;              //0x630C  position snapshot at lock time
-        bool etainAttackLockDirty;               //0x6318  true if movement was attempted during lock
-        PAD(3);                                  //0x6319  alignment padding
+        // EtainShield — anti-cutting per-user state (freeze after attack)
+        tick32_t etainCuttingUntil;              //0x6308  tick when movement lock expires (0 = no lock)
+        PAD(16);                                 //0x630C  reserved
         // 0x631C
 
         static void AddExpFromUser(CUser* user/*esi*/, unsigned lastTargetId, int exp, bool isQuest);

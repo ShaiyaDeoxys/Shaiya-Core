@@ -5,7 +5,6 @@
 #include <windows.h>
 #include <util/util.h>
 #include "include/main.h"
-#include "include/config.h"
 #include "include/shaiya/CCharacter.h"
 #include "include/shaiya/CMonster.h"
 #include "include/shaiya/CWindow.h"
@@ -16,12 +15,11 @@ using namespace shaiya;
 namespace target_view
 {
     constexpr int kTextOffsetX = 66;
-    constexpr int kTextOffsetY = 36;
-    constexpr int kCustomUiTextOffsetY = 22;
+    constexpr int kTextOffsetY = 24;
 
     int get_text_offset_y()
     {
-        return config::load_custom_ui() == 1 ? kCustomUiTextOffsetY : kTextOffsetY;
+        return kTextOffsetY;
     }
 
     LPD3DXFONT get_current_game_font()

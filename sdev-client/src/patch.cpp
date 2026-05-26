@@ -4,10 +4,10 @@
 #include "include/main.h"
 #include "include/shaiya/Static.h"
 #include "include/config.h"
-#include "include/interface_redirect.h"
-#include "include/ep4_ui.h"
+#include "include/interface_hooks.h"
 #include "include/stat_color.h"
 #include "include/server_selection.h"
+
 #include <cstdint>
 #include <cstring>
 
@@ -51,27 +51,6 @@ void hook::patch()
     static constexpr unsigned char kLoginSplashSkipRenderBlock[] = {0xE9, 0xD8, 0x02, 0x00, 0x00};
     static constexpr unsigned char kLoginSplashSkipAfterResourceInit[] = {0xE9, 0x96, 0x02, 0x00, 0x00};
 
-    // -- CONFIG.ini driven features ----------------------------------------
-    const auto customUiLevel = config::load_custom_ui();
-
-    if (customUiLevel > 0)
-    {
-        // ADVANCED -> UI=1 redirects the stock data/interface folder to
-        // data/intf_epi6.  UI=2 redirects to data/intf_epi8.
-        // The folder names have the same length (9 chars), so this can be
-        // patched in-place without relocating Game.exe strings.
-        interface_redirect::patch_folder_to_custom(customUiLevel);
-    }
-
-    // PNG interface support.
-    // Rewrites known interface texture references in Game.exe from
-    // .tga/.jpg to .png so the client can load a PNG-based interface pack.
-    interface_redirect::patch_texture_extensions_to_png();
-
-    // Screenshot output format.
-    // Rewrites the internal screenshot filename templates from .jpg/.JPG to .png.
-    interface_redirect::patch_screenshot_extensions_to_png();
-
     // Skip updater check via CONFIG.ini.
     // ADVANCED -> SKIPUPDATER=1 makes the client see the same "start game"
     // command-line token normally supplied by Updater.exe.
@@ -83,8 +62,8 @@ void hook::patch()
         server_selection::install_skip_hooks();
     }
 
-    // -- EP4/EP5 UI layout hooks -------------------------------------------
-    ep4_ui::install_hooks(customUiLevel > 0);
+    // -- General visual hooks -------------------------------------------------
+    interface_hooks::install_hooks();
     stat_color::install_stats_color_hooks();
 
     // -- Miscellaneous inline patches --------------------------------------
@@ -219,5 +198,5 @@ void hook::patch()
 // ===========================================================================
 void hook::select_screen()
 {
-    ep4_ui::install_select_screen_hooks();
+    interface_hooks::install_select_screen_hooks();
 }

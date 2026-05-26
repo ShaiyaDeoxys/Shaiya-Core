@@ -265,4 +265,56 @@ namespace shaiya
         uint8_t rewardCount;
     };
     #pragma pack(pop)
+
+    constexpr int kTeleportMaxDestinations = 20;
+    constexpr int kTeleportNameLength = 32;
+    constexpr int kTeleportFactionCount = 2; // 0=Light, 1=Fury
+
+    #pragma pack(push, 1)
+    struct TeleportFactionPos
+    {
+        uint16_t mapId;
+        float x;
+        float y;
+        float z;
+    };
+    #pragma pack(pop)
+
+    #pragma pack(push, 1)
+    struct TeleportDestinationEntry
+    {
+        char name[kTeleportNameLength];
+        uint16_t levelMin;
+        uint16_t levelMax;
+        TeleportFactionPos factionPos[kTeleportFactionCount];
+    };
+    #pragma pack(pop)
+
+    enum struct GameTeleportMoveResult : uint8_t
+    {
+        Success = 0,
+        LevelTooLow,
+        LevelTooHigh,
+        AlreadyInMap,
+        InvalidDestination,
+        Dead,
+        Busy,
+    };
+
+    #pragma pack(push, 1)
+    struct GameTeleportListOutgoing
+    {
+        uint16_t opcode{ 0x838 };
+        uint8_t count;
+        TeleportDestinationEntry entries[kTeleportMaxDestinations];
+    };
+    #pragma pack(pop)
+
+    #pragma pack(push, 1)
+    struct GameTeleportMoveOutgoing
+    {
+        uint16_t opcode{ 0x839 };
+        GameTeleportMoveResult result;
+    };
+    #pragma pack(pop)
 }

@@ -69,9 +69,6 @@
     <ClCompile Include="src\packet_party.cpp">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="src\packet_mailbox.cpp">
-      <Filter>src</Filter>
-    </ClCompile>
     <ClCompile Include="src\packet_reward_item.cpp">
       <Filter>src</Filter>
     </ClCompile>

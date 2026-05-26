@@ -5,6 +5,7 @@
 #include <array>
 #include <algorithm>
 #include <shaiya/include/network/game/incoming/0800.h>
+#include <shaiya/include/network/game/outgoing/0800.h>
 #include "include/main.h"
 #include "include/shaiya/CNetwork.h"
 #include "include/shaiya/CQuickSlot.h"
@@ -153,6 +154,21 @@ namespace window
         {
             auto token = reinterpret_cast<const char*>(lParam);
             append_utf8_textbox_text(&g_var->input.textBox, token);
+            return 0;
+        }
+
+        if (msg == kClientTeleportListWindowMessage)
+        {
+            GameTeleportListIncoming outgoing{};
+            CNetwork::Send(&outgoing, sizeof(outgoing));
+            return 0;
+        }
+
+        if (msg == kClientTeleportMoveWindowMessage)
+        {
+            GameTeleportMoveIncoming outgoing{};
+            outgoing.index = static_cast<uint8_t>(wParam);
+            CNetwork::Send(&outgoing, sizeof(outgoing));
             return 0;
         }
 

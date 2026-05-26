@@ -10,6 +10,7 @@ namespace shaiya
         static void Init();
         static void LoadServerConfig();
         static void LoadBattlefieldMoveData();
+        static void LoadTeleportDestinations();
         static void LoadItemSetData();
         static void LoadItemSynthesis();
         static void LoadRewardItemEvent();

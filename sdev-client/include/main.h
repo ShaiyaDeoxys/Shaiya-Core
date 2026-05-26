@@ -16,6 +16,8 @@ extern "C" __declspec(dllexport) void DllExport();
 inline constexpr unsigned kClientRouletteListWindowMessage = 0x8000 + 0x4A4;
 inline constexpr unsigned kClientRouletteRollWindowMessage = 0x8000 + 0x4A3;
 inline constexpr unsigned kClientEmojiTokenWindowMessage = 0x8000 + 0x4A5;
+inline constexpr unsigned kClientTeleportListWindowMessage = 0x8000 + 0x4A6;
+inline constexpr unsigned kClientTeleportMoveWindowMessage = 0x8000 + 0x4A7;
 void tick_client_welcome_sysmsg();
 void ensure_client_sysmsg_dispatch_ready();
 bool is_client_sysmsg_dispatch_ready();

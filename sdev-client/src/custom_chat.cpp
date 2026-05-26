@@ -95,8 +95,8 @@ namespace custom_chat
         constexpr float kNativeLowerFirstLineYOffset = 0x5e;   // lower panel first-line offset from baseY
         constexpr int kNativeUpperExtraLines = 2;              // min visible lines when upper is maximized
         constexpr int kNativeLowerExtraLines = 4;              // min visible lines when lower is maximized
-        constexpr int kDefaultNativeUpperCharsPerLine = 55;    // default wrap width (upper, combat)
-        constexpr int kDefaultNativeLowerCharsPerLine = 48;    // default wrap width (lower, chat)
+        constexpr int kDefaultNativeUpperCharsPerLine = 56;    // default wrap width (upper, combat)
+        constexpr int kDefaultNativeLowerCharsPerLine = 47;    // default wrap width (lower, chat)
         constexpr int kNativeMaxLinesPerMsg = 3;               // max wrapped lines per message
         constexpr float kNativeParallelFontSize = 15.0f;       // ImGui font size matching native
         constexpr uintptr_t kNativeUpperScrollValueOffset = 0x16EC;  // scroll float in chat panel object
@@ -111,6 +111,22 @@ namespace custom_chat
         ImVec4 g_color[100]{};
         int g_upperCharsPerLine = kDefaultNativeUpperCharsPerLine;
         int g_lowerCharsPerLine = kDefaultNativeLowerCharsPerLine;
+
+        // --- D3DX deferred text rendering ---
+        // Text runs are collected during render_ingame_chat() and flushed
+        // after ImGui_ImplDX9_RenderDrawData() via flush_d3dx_text().
+        // This uses the game's own ID3DXFont objects for pixel-perfect
+        // native text appearance (GDI rasterizer, not stb_truetype).
+        struct D3DXTextRun
+        {
+            float x, y;
+            D3DCOLOR color;
+            char text[256];
+        };
+
+        constexpr int kMaxD3DXTextRuns = 2048;
+        D3DXTextRun g_d3dxRuns[kMaxD3DXTextRuns]{};
+        int g_d3dxRunCount = 0;
 
         // ===================================================================
         // 2. Security layer 1: Blacklist / mute list (CONFIG.ini [MUTE])
@@ -695,7 +711,7 @@ namespace custom_chat
             std::string path(windowsDir);
             if (!path.empty() && path.back() != '\\')
                 path += "\\";
-            path += "Fonts\\tahoma.ttf";
+            path += "Fonts\\arial.ttf";
 
             if (GetFileAttributesA(path.c_str()) == INVALID_FILE_ATTRIBUTES)
                 return nullptr;
@@ -703,7 +719,7 @@ namespace custom_chat
             auto& io = ImGui::GetIO();
             ImFontConfig cfg{};
             cfg.FontDataOwnedByAtlas = true;
-            std::snprintf(cfg.Name, sizeof(cfg.Name), "Tahoma##ParallelChat");
+            std::snprintf(cfg.Name, sizeof(cfg.Name), "Arial##ParallelChat");
             g_parallelFont = io.Fonts->AddFontFromFileTTF(
                 path.c_str(), 14.0f, &cfg, io.Fonts->GetGlyphRangesDefault());
             return g_parallelFont;
@@ -1027,7 +1043,9 @@ namespace custom_chat
 
         // Draw a single text line with inline emoji support and a native-style
         // shadow.  Splits the text into runs of plain text and emoji tokens,
-        // rendering plain text via ImGui::AddText and emojis as texture quads.
+        // rendering plain text via D3DX and emojis as ImGui texture quads.
+        // outline=true  → 4-direction outline (lower/social panel)
+        // outline=false → single drop shadow at (x+1, y+1) (upper/combat panel)
         void draw_text_line(
             ImDrawList* drawList,
             ImFont* font,
@@ -1036,7 +1054,8 @@ namespace custom_chat
             float y,
             ImU32 color,
             ImU32 shadow,
-            const char* text)
+            const char* text,
+            bool outline = true)
         {
             if (!drawList || !text || text[0] == '\0')
                 return;
@@ -1070,19 +1089,50 @@ namespace custom_chat
 
                 const char* p = text + runStart;
                 const char* pEnd = text + idx;
+                auto runLen = static_cast<std::size_t>(pEnd - p);
+
+                // Measure text width using the ImGui font (for cursor advance
+                // and emoji positioning).  The D3DX font may produce slightly
+                // different widths, but emoji tokens need a consistent advance.
                 float runW = font
                     ? font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, p, pEnd).x
                     : ImGui::CalcTextSize(p, pEnd).x;
 
-                if (font)
+                // Queue the text run for D3DX rendering after ImGui flush.
+                // outline=true:  4-direction outline (N/S/E/W black + center color)
+                // outline=false: single drop shadow at (+1,+1) + center color
+                int shadowDraws = outline ? 4 : 1;
+                if (runLen > 0 && runLen < sizeof(D3DXTextRun::text) &&
+                    g_d3dxRunCount + shadowDraws + 1 <= kMaxD3DXTextRuns)
                 {
-                    drawList->AddText(font, fontSize, ImVec2(cursorX + 1.0f, y + 1.0f), shadow, p, pEnd);
-                    drawList->AddText(font, fontSize, ImVec2(cursorX, y), color, p, pEnd);
-                }
-                else
-                {
-                    drawList->AddText(ImVec2(cursorX + 1.0f, y + 1.0f), shadow, p, pEnd);
-                    drawList->AddText(ImVec2(cursorX, y), color, p, pEnd);
+                    auto enqueue = [&](float ox, float oy, D3DCOLOR c) {
+                        auto& run = g_d3dxRuns[g_d3dxRunCount++];
+                        run.x = cursorX + ox;
+                        run.y = oy;
+                        run.color = c;
+                        std::memcpy(run.text, p, runLen);
+                        run.text[runLen] = '\0';
+                    };
+
+                    D3DCOLOR shadowD3D = (shadow & 0xFF00FF00) |
+                        ((shadow >> 16) & 0xFF) |
+                        ((shadow & 0xFF) << 16);
+                    D3DCOLOR colorD3D = (color & 0xFF00FF00) |
+                        ((color >> 16) & 0xFF) |
+                        ((color & 0xFF) << 16);
+
+                    if (outline)
+                    {
+                        enqueue(0.0f, y - 1.0f, shadowD3D);
+                        enqueue(0.0f, y + 1.0f, shadowD3D);
+                        enqueue(-1.0f, y, shadowD3D);
+                        enqueue(1.0f, y, shadowD3D);
+                    }
+                    else
+                    {
+                        enqueue(1.0f, y + 1.0f, shadowD3D);
+                    }
+                    enqueue(0.0f, y, colorD3D);
                 }
 
                 cursorX += runW;
@@ -1092,6 +1142,8 @@ namespace custom_chat
         // Draw a stack of wrapped lines for one panel (upper or lower).
         // Lines are drawn bottom-up from firstLineY, respecting the native
         // scroll offset and visible line count.
+        // outline=true  → 4-direction outline shadow (lower/social panel)
+        // outline=false → single drop shadow (upper/combat panel)
         void draw_line_stack(
             ImDrawList* drawList,
             float x,
@@ -1099,7 +1151,8 @@ namespace custom_chat
             int visibleLines,
             const NativeChatLine* lines,
             int lineCount,
-            int scrollOffset)
+            int scrollOffset,
+            bool outline = true)
         {
             if (!drawList || !lines || lineCount <= 0 || visibleLines <= 0)
                 return;
@@ -1125,7 +1178,8 @@ namespace custom_chat
                     y,
                     ImGui::ColorConvertFloat4ToU32(color),
                     shadow,
-                    lines[selected].text);
+                    lines[selected].text,
+                    outline);
             }
         }
 
@@ -1260,6 +1314,7 @@ namespace custom_chat
     void render_ingame_chat()
     {
         load_state();
+        g_d3dxRunCount = 0;  // reset D3DX text buffer each frame
         if (!g_customChatEnabled || !is_game_scene_stable())
             return;
 
@@ -1325,7 +1380,8 @@ namespace custom_chat
             metrics.upperVisibleLines,
             upperLines,
             upperCount,
-            read_native_chat_scroll_offset(true));
+            read_native_chat_scroll_offset(true),
+            false);   // upper panel: single drop shadow
         draw_line_stack(
             drawList,
             metrics.textX,
@@ -1333,7 +1389,39 @@ namespace custom_chat
             metrics.lowerVisibleLines,
             lowerLines,
             lowerCount,
-            read_native_chat_scroll_offset(false));
+            read_native_chat_scroll_offset(false),
+            true);    // lower panel: 4-direction outline
+    }
+
+    void flush_d3dx_text()
+    {
+        if (g_d3dxRunCount <= 0)
+            return;
+
+        // Use the game's native chat font (Arial 15, weight 400, GDI rasterized).
+        // d3dxFont0 is the primary chat font slot at Camera offset 0x3A8.
+        auto* font = g_var->camera.d3dxFont0;
+        if (!font)
+            font = g_var->camera.d3dxFont1;
+        if (!font)
+            font = g_var->camera.d3dxFont2;
+        if (!font)
+            font = g_var->camera.d3dxFont3;
+        if (!font)
+            return;
+
+        for (int i = 0; i < g_d3dxRunCount; ++i)
+        {
+            const auto& run = g_d3dxRuns[i];
+            RECT rect;
+            rect.left   = static_cast<LONG>(run.x);
+            rect.top    = static_cast<LONG>(run.y);
+            rect.right  = rect.left + 600;
+            rect.bottom = rect.top + 24;
+            font->DrawTextA(nullptr, run.text, -1, &rect, DT_NOCLIP, run.color);
+        }
+
+        g_d3dxRunCount = 0;
     }
 
     void render_options()

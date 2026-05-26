@@ -27,9 +27,7 @@ void user_hook(CUser* user)
     user->etainLastPos = {};
     user->etainLastMoveTick = 0;
     user->etainViolationCount = 0;
-    user->etainAttackLockTick = 0;
-    user->etainAttackLockPos = {};
-    user->etainAttackLockDirty = false;
+    user->etainCuttingUntil = 0;
 }
 
 unsigned u0x45516B = 0x45516B;
@@ -96,6 +94,7 @@ void Main()
     Configuration::Init();
     Configuration::LoadServerConfig();
     Configuration::LoadBattlefieldMoveData();
+    Configuration::LoadTeleportDestinations();
     Configuration::LoadEtainShield();
 
     // CUser::CUser

@@ -37,12 +37,6 @@ SKIPSERVERSELECTION=1
 ; 0 keeps the stock mode-selection screen.
 SKIPMODESELECTION=1
 
-; 0 uses data/interface (default EP4 HUD layout).
-; 1 redirects the interface folder to data/intf_epi6.
-; 2 redirects the interface folder to data/intf_epi8.
-; Non-zero values disable the EP4 HUD layout package.
-UI=0
-
 ; Visual title rendering from cloak data.
 TITLES=ON
 
@@ -129,21 +123,17 @@ This section is the client-side feature map. Every entry is installed from `Main
 
 ### Interface And Assets
 
-- **PNG interface redirect**: rewrites known interface `.tga`/`.jpg` references to `.png` at runtime. The redirect is intentionally limited to known UI paths and avoids broad icon conversion.
-- **Custom UI folder**: `ADVANCED/UI=1` redirects stock `data/interface` references to `data/intf_epi6`; `UI=2` redirects to `data/intf_epi8`. `UI=0` or a missing setting keeps `data/interface`.
-- **PNG screenshots**: rewrites screenshot filename templates from `.jpg/.JPG` to `.png`.
-- **EP4 HUD package**: ports selected EP4 HUD pieces: main stats frame/bars/level, target bar, target buffs/debuffs, map/minimap buttons/background/clock/server time, map arrows, bottom button strips, option main button, and load bar. Includes 15 EXP/Bless bar hooks (position, length, width, text, and glow) across three resolution variants (800, 640, 1024) to fit bars inside the EP4 ornamental frame. Inventory and stock EXP/Bless bars are intentionally not replaced. This package is disabled when `ADVANCED/UI` is non-zero so custom interface layouts remain coherent.
+- **Clock text format**: overrides the map clock text format.
 - **Background render arguments**: adjusts startup/login background draw arguments used by the current UI setup.
 - **Level-up message suppression**: keeps the stock level-up texture creation flow, but forces the render size to zero so the splash is hidden.
 - **GM H-key HP viewer removal**: disables the vanilla redundant GM HP viewer opened by `H`; the custom target viewer remains available.
 - **Stats window color patch**: adjusts patched stats-window colors to fit the current interface.
 - **Dungeon map visibility**: allows dungeon maps to be shown by the client.
-- **PvP rank icon alignment**: adjusts UI image coordinates so PvP rank icons render correctly in both the standard and EP6 interface layouts.
+- **PvP rank icon alignment**: adjusts UI image coordinates so PvP rank icons render correctly in the current interface layout.
 
 ### Battleground Button
 
 - Draws `main_stats_pvp_button.png` inside the main stats UI without rewriting the whole `CStatusMiniBar` layout.
-- When `ADVANCED/UI` is non-zero, the button render position and click hitbox are shifted upward to match the custom main stats frame.
 - Reads `BattleFieldMoveInfo_Client.ini` from the client root or `Data` folder to display the correct battlefield name for the player level.
 - Sends packet `0x233` only after the click starts and ends inside the button, avoiding accidental activation during window maximize/minimize.
 - Uses a native confirmation dialog before sending the move request.
@@ -151,7 +141,6 @@ This section is the client-side feature map. Every entry is installed from `Main
 ### Target, Names, Titles, And Text
 
 - **Target HP viewer**: draws current/max HP inside the native target frame for monsters and users, using the configured game font.
-- When `ADVANCED/UI` is non-zero, the target HP viewer is shifted upward to match the custom target frame.
 - **Item titles**: renders visual titles from cloak data and can be toggled with `TITLES` or `/titles`.
 - **Name colors**: renders colored names from helmet data, including rainbow color mode, and can be toggled with `COLOUR` or `/colour`.
 - **Font picker**: `/font` updates the GDI font and all known D3DX camera font slots so labels, counters, chat-adjacent overlays, and native text helpers stay consistent.
@@ -218,8 +207,7 @@ This section is the client-side feature map. Every entry is installed from `Main
 
 ## Asset Notes
 
-- Interface assets used by the PNG redirect must exist in the client `Data/interface` tree.
-- Custom interface assets for `ADVANCED/UI=1` must exist in `Data/intf_epi6`; for `UI=2` in `Data/intf_epi8`. Non-icon `.tga/.jpg` files should be converted to `.png`; the broad PNG redirect intentionally leaves `icon` assets alone.
+- Interface assets must exist in the client `Data/interface` tree in their native format (.tga/.jpg).
 - Raid button assets are expected as PNG.
 - Battleground uses `main_stats_pvp_button.png`.
 - Visual chat token assets are read from the internal data archive: `Assets/Emojis/emojiN.png` and `Assets/Gifs/gifN.gif`.
@@ -229,5 +217,4 @@ This section is the client-side feature map. Every entry is installed from `Main
 - Visual title images are read from `Assets/Titles/titleN.png` (static) and `Assets/TitlesAnimated/titleN.gif` (animated) inside `data.sah/saf`.
 - Elemental icon badges are read from `Assets/General/{fire,water,earth,wind}.png` inside `data.sah/saf`. The SAH index is parsed once to locate the files and each PNG is decoded by stb_image into a D3D9 managed texture.
 - Internal archive access is centralized in `src/game_data_archive.cpp`; features still decide which folders/files they need, but they share the same `data.sah` scanner and `data.saf` reader.
-- The client intentionally keeps icon assets outside the broad PNG redirect unless a feature explicitly handles them.
 - Custom recreation rune UI acceptance is only client-side placement. Server behavior is implemented in `sdev`.
