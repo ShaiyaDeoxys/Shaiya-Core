@@ -131,20 +131,12 @@ This section is the client-side feature map. Every entry is installed from `Main
 - **Dungeon map visibility**: allows dungeon maps to be shown by the client.
 - **PvP rank icon alignment**: adjusts UI image coordinates so PvP rank icons render correctly in the current interface layout.
 
-### Battleground Button
-
-- Draws `main_stats_pvp_button.png` inside the main stats UI without rewriting the whole `CStatusMiniBar` layout.
-- Reads `BattleFieldMoveInfo_Client.ini` from the client root or `Data` folder to display the correct battlefield name for the player level.
-- Sends packet `0x233` only after the click starts and ends inside the button, avoiding accidental activation during window maximize/minimize.
-- Uses a native confirmation dialog before sending the move request.
-
 ### Target, Names, Titles, And Text
 
 - **Target HP viewer**: draws current/max HP inside the native target frame for monsters and users, using the configured game font.
 - **Item titles**: renders visual titles from cloak data and can be toggled with `TITLES` or `/titles`.
 - **Name colors**: renders colored names from helmet data, including rainbow color mode, and can be toggled with `COLOUR` or `/colour`.
 - **Font picker**: `/font` updates the GDI font and all known D3DX camera font slots so labels, counters, chat-adjacent overlays, and native text helpers stay consistent.
-- **Chat balloon height**: increases chat balloon height from `1.5` to `1.75` for better title/name layouts.
 - **Mob/player effect toggles**: command hooks can hide player effects, mob effects, costumes, pets, wings, and related visual objects.
 
 ### Items, Equipment, And Packets
@@ -159,7 +151,6 @@ This section is the client-side feature map. Every entry is installed from `Main
 - **Elemental icon overlay**: draws a small element badge (fire, water, earth, wind) in the bottom-right corner of eligible item icons in both inventory and quickslot bars. Detection checks inserted lapis gems first, then falls back to the base item attribute. Textures are indexed through `data.sah` and loaded once from `Assets/General/{fire,water,earth,wind}.png` inside `data.saf`.
 - **Two-hand/off-hand logic**: fixes `CPlayerData::IsTwoHandWeapon` behavior so custom off-hand support can coexist with one-hand weapons.
 - **Weapon step display**: patches the client weapon-step path used by lapisian/enchant display.
-- **Item description augmentation**: a background thread runs once after item data is loaded and appends OJ reroll info (maximum OJs and highest OJ value, or "cannot be rerolled") and grade value (admin-only) to each item's description pointer in-place. Zero per-frame overhead.
 - **Remote NPC panel**: `NpcIcon.png` from `Assets/General` opens a compact ImGui panel for Market, Blacksmith, RR Blacksmith, Vet Manager, Bank, and Guild Manager. The button and panel positions persist in the ImGui settings.
 - **Vehicle packet/display support**: supports vehicle-related EP6.4 shape/list packet fields and client display paths where implemented.
 
@@ -207,9 +198,7 @@ This section is the client-side feature map. Every entry is installed from `Main
 
 ## Asset Notes
 
-- Interface assets must exist in the client `Data/interface` tree in their native format (.tga/.jpg).
-- Raid button assets are expected as PNG.
-- Battleground uses `main_stats_pvp_button.png`.
+- Interface assets must exist in the client `Data/interface` tree in their native format (.tga/.jpg/.png/.dds).
 - Visual chat token assets are read from the internal data archive: `Assets/Emojis/emojiN.png` and `Assets/Gifs/gifN.gif`.
 - Roulette background is read from `Assets/General/Roulette.png` inside `data.sah/saf`.
 - Roulette item icons read the native DDS atlases from `Data/interface/icon` inside `data.sah/saf`, including special atlases such as `icon_somo3.dds`. The SAH index is parsed once and DDS textures (DXT1/DXT3/DXT5) are decoded by a built-in parser, so the ImGui panel follows the client's data without embedding atlas copies in `sdev-client.dll`.
@@ -217,4 +206,3 @@ This section is the client-side feature map. Every entry is installed from `Main
 - Visual title images are read from `Assets/Titles/titleN.png` (static) and `Assets/TitlesAnimated/titleN.gif` (animated) inside `data.sah/saf`.
 - Elemental icon badges are read from `Assets/General/{fire,water,earth,wind}.png` inside `data.sah/saf`. The SAH index is parsed once to locate the files and each PNG is decoded by stb_image into a D3D9 managed texture.
 - Internal archive access is centralized in `src/game_data_archive.cpp`; features still decide which folders/files they need, but they share the same `data.sah` scanner and `data.saf` reader.
-- Custom recreation rune UI acceptance is only client-side placement. Server behavior is implemented in `sdev`.
