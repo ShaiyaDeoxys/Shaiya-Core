@@ -1,5 +1,4 @@
 #include <format>
-#include <map>
 #include <string>
 #include <vector>
 #include <util/util.h>
@@ -65,7 +64,7 @@ namespace vehicle
         if (vehicle == g_vehicles.end())
             return nullptr;
 
-        return vehicle._Ptr;
+        return &*vehicle;
     }
 
     void make_matrix(CCharacter* user, int model)

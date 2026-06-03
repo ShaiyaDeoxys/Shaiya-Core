@@ -15,14 +15,10 @@
     <ClInclude Include="src\include\config.h" />
     <ClInclude Include="src\include\custom_chat.h" />
     <ClInclude Include="src\include\debug_panel.h" />
-    <ClInclude Include="src\include\speed_monitor.h" />
     <ClInclude Include="src\include\game_data_archive.h" />
     <ClInclude Include="src\include\game_addresses.h" />
     <ClInclude Include="src\include\imgui_layer_internal.h" />
-    <ClInclude Include="src\include\interface_hooks.h" />
-    <ClInclude Include="src\include\stat_color.h" />
-    <ClInclude Include="src\include\interface_redirect.h" />
-    <ClInclude Include="src\include\server_selection.h" />
+    <ClInclude Include="src\include\interface.h" />
     <ClInclude Include="..\external\discord-rpc\include\discord_register.h" />
     <ClInclude Include="..\external\discord-rpc\include\discord_rpc.h" />
     <ClInclude Include="..\external\imgui\imgui.h" />
@@ -95,6 +91,9 @@
     <ClInclude Include="include\shaiya\Unknown.h" />
     <ClInclude Include="include\shaiya\Vehicle.h" />
     <ClInclude Include="include\shaiya\WindowType.h" />
+    <ClInclude Include="include\shaiya\Roulette.h" />
+    <ClInclude Include="include\shaiya\RewardItemEvent.h" />
+    <ClInclude Include="include\shaiya\Teleport.h" />
     <ClInclude Include="resources\resource.h" />
   </ItemGroup>
   <ItemGroup>
@@ -125,20 +124,12 @@
     <ClCompile Include="..\external\imgui\imgui_widgets.cpp" />
     <ClCompile Include="..\external\imgui\backends\imgui_impl_dx9.cpp" />
     <ClCompile Include="..\external\imgui\backends\imgui_impl_win32.cpp" />
-    <ClCompile Include="src\camera_limit.cpp" />
-    <ClCompile Include="src\blacksmith.cpp" />
-    <ClCompile Include="src\character.cpp" />
     <ClCompile Include="src\command.cpp" />
+    <ClCompile Include="src\discord.cpp" />
     <ClCompile Include="src\config.cpp" />
     <ClCompile Include="src\custom_chat.cpp" />
-    <ClCompile Include="src\custom_game.cpp" />
-    <ClCompile Include="src\discord.cpp" />
     <ClCompile Include="src\dllmain.cpp" />
-    <ClCompile Include="src\equipment.cpp" />
-    <ClCompile Include="src\interface_hooks.cpp" />
-    <ClCompile Include="src\stat_color.cpp" />
-    <ClCompile Include="src\ep6_repo_features.cpp" />
-    <ClCompile Include="src\exp_view.cpp" />
+    <ClCompile Include="src\interface.cpp" />
     <ClCompile Include="src\game_data_archive.cpp" />
     <ClCompile Include="src\imgui_layer.cpp" />
     <ClCompile Include="src\imgui_layer_asm.cpp" />
@@ -148,28 +139,18 @@
     <ClCompile Include="src\imgui_layer_reward.cpp" />
     <ClCompile Include="src\imgui_layer_settings.cpp" />
     <ClCompile Include="src\imgui_layer_teleport.cpp" />
-    <ClCompile Include="src\input.cpp" />
-    <ClCompile Include="src\interface_redirect.cpp" />
     <ClCompile Include="src\item_icon.cpp" />
-    <ClCompile Include="src\main_stats.cpp" />
     <ClCompile Include="src\name_color.cpp" />
-    <ClCompile Include="src\npc_button.cpp" />
     <ClCompile Include="src\patch.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\packet.cpp" />
     <ClCompile Include="src\quick_slot.cpp" />
     <ClCompile Include="src\raid.cpp" />
     <ClCompile Include="src\resolutions.cpp" />
-    <ClCompile Include="src\server_selection.cpp" />
-    <ClCompile Include="src\target_view.cpp" />
     <ClCompile Include="src\title.cpp" />
-    <ClCompile Include="src\ui_image.cpp" />
-    <ClCompile Include="src\unicode.cpp" />
     <ClCompile Include="src\debug_panel.cpp" />
-    <ClCompile Include="src\speed_monitor.cpp" />
     <ClCompile Include="src\stb_image_impl.cpp" />
     <ClCompile Include="src\vehicle.cpp" />
-    <ClCompile Include="src\weapon_step.cpp" />
     <ClCompile Include="src\window.cpp" />
   </ItemGroup>
   <ItemGroup>

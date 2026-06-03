@@ -103,7 +103,6 @@ namespace custom_chat
         constexpr uintptr_t kNativeLowerScrollValueOffset = 0x294C;
 
         bool g_stateLoaded = false;
-        bool g_customChatEnabled = true;
         ParallelChatMsg g_ring[kMaxParallelMsgs]{};
         int g_head = 0;
         int g_count = 0;
@@ -209,13 +208,6 @@ namespace custom_chat
             else
                 WritePrivateProfileStringA(
                     kMuteIniSection, lowerName.c_str(), nullptr, ini.c_str());
-        }
-
-        // Quick membership check — used internally, not for filtering.
-        // Actual message filtering uses is_muted_by_content() (section 7).
-        bool is_muted(const std::string& lowerName)
-        {
-            return g_muteList.names.count(lowerName) > 0;
         }
 
         // ===================================================================
@@ -343,13 +335,10 @@ namespace custom_chat
             int consecutiveCount = 0;   // how many times in a row
         };
 
-        // Legacy per-chatType tracker (unused but kept for struct reference).
-        std::unordered_map<int, DuplicateTracker> g_duplicateTrackers;
-
         // Returns the consecutive duplicate count for this text.
         // If >= kDuplicateThreshold, the caller should collapse the message
         // instead of adding a new ring buffer entry.
-        int check_duplicate(const std::string& sanitizedText, const char* /*unused*/)
+        int check_duplicate(const std::string& sanitizedText)
         {
             // Per-text tracker: counts consecutive runs of identical messages
             // across all chat types.  Using the sanitized text as the key
@@ -493,8 +482,8 @@ namespace custom_chat
                     }
                 }
 
-                // Strip control characters (< 0x20) except space
-                if (ch < 0x20 && ch != ' ')
+                // Strip ASCII control characters (0x00..0x1F)
+                if (ch < 0x20)
                 {
                     ++i;
                     continue;
@@ -693,7 +682,6 @@ namespace custom_chat
                 return;
 
             g_stateLoaded = true;
-            g_customChatEnabled = config::load_custom_chat();
             load_mute_list();
         }
 
@@ -723,17 +711,6 @@ namespace custom_chat
             g_parallelFont = io.Fonts->AddFontFromFileTTF(
                 path.c_str(), 14.0f, &cfg, io.Fonts->GetGlyphRangesDefault());
             return g_parallelFont;
-        }
-
-        // Chat types that are rendered as native screen notices (center-screen
-        // overlays handled by the game engine, not by our parallel chat).
-        // Notice26/27 and Chat32/33 still belong to the chat history, so they
-        // are intentionally not skipped here.
-        bool is_native_screen_notice_chat_type(int chatType)
-        {
-            return chatType == 23 || chatType == 24 || chatType == 25 ||
-                   chatType == 28 || chatType == 29 || chatType == 30 ||
-                   chatType == 48 || chatType == 50;
         }
 
         // Returns true if the chat type belongs in the upper (combat/system)
@@ -769,7 +746,6 @@ namespace custom_chat
 
         // Per-message flags — stored in g_msgFlags[], parallel to g_ring[].
         constexpr unsigned char kMsgFlagNone = 0;
-        constexpr unsigned char kMsgFlagRateLimited = 1;  // suppressed by rate limiter
         constexpr unsigned char kMsgFlagDuplicate = 2;    // collapsed consecutive dup
 
         unsigned char g_msgFlags[kMaxParallelMsgs]{};     // flags parallel to g_ring
@@ -829,7 +805,7 @@ namespace custom_chat
             // Layer 3: Duplicate detection — keyed on sanitized text.
             // If ≥3 consecutive, update the existing ring entry's "(xN)"
             // counter instead of adding a new line.
-            int dupeCount = check_duplicate(sanitized, sanitized.c_str());
+            int dupeCount = check_duplicate(sanitized);
             if (dupeCount >= kDuplicateThreshold)
             {
                 // Scan backwards in the ring to find the previous matching
@@ -903,7 +879,8 @@ namespace custom_chat
             if (chatType == 20 || chatType == 47) return native_rgb(0xFF, 0x00, 0xFF);
             if (chatType == 21) return native_rgb(0x99, 0xFF, 0xFF);
             if (chatType == 22) return native_rgb(0xCC, 0xFF, 0x33);
-            if (chatType == 24 || chatType == 40) return native_rgb(0xFF, 0xFF, 0x00);
+            if (chatType == 24) return native_rgb(0xFF, 0xFF, 0xFF);
+            if (chatType == 40) return native_rgb(0xFF, 0xFF, 0x00);
             if (chatType == 31) return native_rgb(0xCC, 0xCC, 0xCC);
             if (chatType == 34) return native_rgb(0xD5, 0xD4, 0xD3);
             if (chatType == 35) return native_rgb(0xA8, 0xF3, 0xA0);
@@ -991,7 +968,7 @@ namespace custom_chat
                         if (auto* emoji = find_emoji_by_token(msg + end))
                         {
                             advanceBytes = static_cast<int>(emoji->token.size());
-                            advanceColumns = 2;
+                            advanceColumns = is_visual_token_enabled(emoji->kind) ? 2 : 0;
                         }
                     }
 
@@ -1070,21 +1047,25 @@ namespace custom_chat
                 auto* emoji = (text[idx] == ':') ? find_emoji_by_token(text + idx) : nullptr;
                 if (emoji)
                 {
-                    auto tex = get_emoji_texture(*emoji);
-                    if (tex)
+                    if (is_visual_token_enabled(emoji->kind))
                     {
-                        drawList->AddImage(
-                            reinterpret_cast<ImTextureID>(tex),
-                            ImVec2(cursorX, y),
-                            ImVec2(cursorX + emojiSize, y + emojiSize));
-                        cursorX += emojiSize;
+                        auto tex = get_emoji_texture(*emoji);
+                        if (tex)
+                        {
+                            drawList->AddImage(
+                                reinterpret_cast<ImTextureID>(tex),
+                                ImVec2(cursorX, y),
+                                ImVec2(cursorX + emojiSize, y + emojiSize));
+                            cursorX += emojiSize;
+                        }
                     }
                     idx += emoji->token.size();
                     continue;
                 }
 
                 auto runStart = idx;
-                while (idx < len && !(text[idx] == ':' && find_emoji_by_token(text + idx)))
+                while (idx < len
+                    && !(text[idx] == ':' && find_emoji_by_token(text + idx)))
                     ++idx;
 
                 const char* p = text + runStart;
@@ -1286,9 +1267,6 @@ namespace custom_chat
     void record_chat_type(int chatType, const char* text)
     {
         load_state();
-        if (!g_customChatEnabled || is_native_screen_notice_chat_type(chatType))
-            return;
-
         // Upper panel messages (combat/system, types 15–33, 50) are from the
         // server, not from players — skip the security pipeline entirely.
         // Only lower panel messages (social chat, types 34+) are filtered.
@@ -1308,14 +1286,14 @@ namespace custom_chat
     bool hide_native_chat_visuals()
     {
         load_state();
-        return g_customChatEnabled;
+        return true;
     }
 
     void render_ingame_chat()
     {
         load_state();
         g_d3dxRunCount = 0;  // reset D3DX text buffer each frame
-        if (!g_customChatEnabled || !is_game_scene_stable())
+        if (!is_game_scene_stable())
             return;
 
         NativeChatMetrics metrics;
@@ -1333,10 +1311,6 @@ namespace custom_chat
             int idx = (start + i) % kMaxParallelMsgs;
             const auto& msg = g_ring[idx];
             auto flag = g_msgFlags[idx];
-
-            // Rate-limited messages: show "[muted]" annotation
-            if (flag == kMsgFlagRateLimited)
-                continue;  // suppress entirely
 
             // Build display text, appending duplicate count if flagged
             char displayBuf[600]{};
@@ -1502,4 +1476,5 @@ namespace custom_chat
         push_msg_raw(24, buf, kMsgFlagNone, 0);
         return true;
     }
+
 }

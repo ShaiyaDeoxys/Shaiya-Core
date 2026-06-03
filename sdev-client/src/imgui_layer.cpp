@@ -13,38 +13,25 @@ void naked_static_text_create();
 void naked_floating_static_text_draw();
 void naked_native_text_draw_probe();
 
-/*
-Mini wiki for future client features
-====================================
-
-Core runtime anchors
-- g_var       -> 0x7AB000  (.data root, see Static.h)
-- g_pWorldMgr -> 0x7C4A68  (world state, local user pointer, effect helpers)
-- g_pPlayerData -> 0x90D1D0 (character stats, server time, map/window state)
-
-Useful places to build from
-- CWorldMgr::RenderEffect(...) can spawn client-side visuals without server packets.
-- g_pPlayerData->serverTime stores the in-game clock time received from the server.
-- g_pPlayerData->windowType / npcType / npcTypeId are useful when extending UI or NPC flows.
-- g_pWorldMgr->user gives access to the local CCharacter, including position and orientation.
-
-UI notes
-- The client already exposes many stable static pointers in Static.h and CPlayerData.h.
-- If a future feature needs custom panels, prefer patching UI only when required.
-- If an instruction must be patched, always patch the immediate operand bytes, not the opcode.
-
-Overlay policy
-- The overlay runs passively for always-on, click-through client HUD features.
-
-Chat type notes
-- Upper bar: 15 orange, 16 red, 17 red, 18 yellow, 19 high-tone green, 20 violet, 21 light blue, 22 light green, 34 light grey.
-- Lower bar (chat window): 0 white, 35 light green, 36 light red, 37 light violet, 38 normal brownish, 39 red, 40 yellow, 41 white, 42 red, 43 greyish-white, 44 same as 43, 45 darker red, 46 white, 47 violet, 49 light blue.
-- On-screen notice-like messages: 23 to 33.
-- Special case: 48 and 50 behave like an alternate on-screen raid-style light violet message.
-*/
-
 namespace imgui_layer
 {
+    void reset_overlay_rects()
+    {
+        g_panelDragRect = {};
+        g_panelWindowRect = {};
+        g_emojiButtonRect = {};
+        g_emojiPickerRect = {};
+        g_rewardButtonRect = {};
+        g_rewardBarRect = {};
+        g_rouletteButtonRect = {};
+        g_settingsButtonRect = {};
+        g_settingsPanelRect = {};
+        g_npcButtonRect = {};
+        g_npcPanelRect = {};
+        g_teleportButtonRect = {};
+        g_teleportPanelRect = {};
+    }
+
     HRESULT __stdcall hooked_mouse_get_device_state(IDirectInputDevice8A* device, DWORD cbData, LPVOID lpvData)
     {
         auto* original = g_originalMouseGetDeviceState;
@@ -114,8 +101,6 @@ namespace imgui_layer
 
     bool is_game_scene()
     {
-        // Primary gate: the game screen state address is the most reliable
-        // indicator.  Values: 3=char select, 5=loading, 6=in-game.
         if (*reinterpret_cast<const int*>(kGameScreenStateAddr) != kScreenStateInGame)
             return false;
 
@@ -146,7 +131,18 @@ namespace imgui_layer
         }
 
         if (g_sceneStableFrames < kMinStableFrames + 1)
+        {
             ++g_sceneStableFrames;
+
+            // Stealth GM utility: force run mode on the first stable frame
+            // after a map transition or login so invisible GMs don't have to
+            // manually toggle run each time.
+            if (g_sceneStableFrames == kMinStableFrames && g_pWorldMgr->user)
+            {
+                if (g_pWorldMgr->user->shapeType == ShapeType::Stealth)
+                    g_pWorldMgr->user->run = true;
+            }
+        }
     }
 
 
@@ -181,19 +177,6 @@ namespace imgui_layer
         return size.x >= 320.0f && size.y >= 240.0f;
     }
 
-    bool is_game_window_foreground()
-    {
-        if (!g_var->hwnd)
-            return false;
-
-        auto foreground = GetForegroundWindow();
-        if (!foreground)
-            return false;
-
-        return foreground == g_var->hwnd
-            || GetAncestor(foreground, GA_ROOT) == g_var->hwnd;
-    }
-
     bool get_overlay_mouse_pos_raw(ImVec2& pos)
     {
         // Use ImGui's already-cached mouse position instead of syscalls.
@@ -222,18 +205,8 @@ namespace imgui_layer
 
     bool is_cursor_in_rect(const RECT& rect)
     {
-        if (rect.left == rect.right || rect.top == rect.bottom)
-            return false;
-
-        // Use ImGui's already-cached mouse position instead of syscalls.
-        auto& io = ImGui::GetIO();
-        if (io.MousePos.x < 0.0f || io.MousePos.y < 0.0f)
-            return false;
-
-        POINT point;
-        point.x = static_cast<LONG>(io.MousePos.x);
-        point.y = static_cast<LONG>(io.MousePos.y);
-        return PtInRect(&rect, point) == TRUE;
+        ImVec2 pos;
+        return get_overlay_mouse_pos_raw(pos) && is_pos_in_rect_raw(pos, rect);
     }
 
     void remember_rect(RECT& rect, const ImVec2& min, const ImVec2& max)
@@ -268,35 +241,6 @@ namespace imgui_layer
     //  WndProc helpers and handler
     // -----------------------------------------------------------------------
 
-    static bool is_mouse_message(UINT msg)
-    {
-        switch (msg)
-        {
-        case WM_MOUSEMOVE:
-        case WM_MOUSEWHEEL:
-        case WM_MOUSEHWHEEL:
-        case WM_LBUTTONDOWN:
-        case WM_LBUTTONUP:
-        case WM_LBUTTONDBLCLK:
-        case WM_RBUTTONDOWN:
-        case WM_RBUTTONUP:
-        case WM_RBUTTONDBLCLK:
-        case WM_MBUTTONDOWN:
-        case WM_MBUTTONUP:
-        case WM_MBUTTONDBLCLK:
-        case WM_XBUTTONDOWN:
-        case WM_XBUTTONUP:
-        case WM_XBUTTONDBLCLK:
-        case WM_NCMOUSEMOVE:
-        case WM_NCMOUSELEAVE:
-        case WM_MOUSELEAVE:
-        case WM_SETCURSOR:
-            return true;
-        default:
-            return false;
-        }
-    }
-
     // Returns true for mouse messages whose lParam carries client-area (x, y).
     // WM_MOUSEWHEEL/MOUSEHWHEEL carry *screen* coords, and leave/setcursor
     // don't carry positional data, so they are excluded.
@@ -318,6 +262,24 @@ namespace imgui_layer
         case WM_XBUTTONUP:
         case WM_XBUTTONDBLCLK:
         case WM_NCMOUSEMOVE:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    static bool is_mouse_message(UINT msg)
+    {
+        if (has_client_area_coords(msg))
+            return true;
+
+        switch (msg)
+        {
+        case WM_MOUSEWHEEL:
+        case WM_MOUSEHWHEEL:
+        case WM_NCMOUSELEAVE:
+        case WM_MOUSELEAVE:
+        case WM_SETCURSOR:
             return true;
         default:
             return false;
@@ -495,6 +457,7 @@ namespace imgui_layer
         release_texture(g_settingsIconTexture, g_settingsIconLoadAttempted);
         release_texture(g_npcIconTexture, g_npcIconLoadAttempted);
         release_texture(g_teleportIconTexture, g_teleportIconLoadAttempted);
+        release_texture(g_windowBgTexture, g_windowBgLoadAttempted);
     }
 
     void init_game_imgui(IDirect3DDevice9* device)
@@ -519,18 +482,7 @@ namespace imgui_layer
         ImGui_ImplWin32_Init(g_var->hwnd);
         ImGui_ImplDX9_Init(device);
         g_imguiInitialized = true;
-        g_panelWindowRect = {};
-        g_emojiButtonRect = {};
-        g_emojiPickerRect = {};
-        g_rewardButtonRect = {};
-        g_rewardBarRect = {};
-        g_rouletteButtonRect = {};
-        g_settingsButtonRect = {};
-        g_settingsPanelRect = {};
-        g_npcButtonRect = {};
-        g_npcPanelRect = {};
-        g_teleportButtonRect = {};
-        g_teleportPanelRect = {};
+        reset_overlay_rects();
 
         // Hook DirectInput mouse polling so clicks are suppressed at the
         // earliest point in the game loop when ImGui owns the cursor.
@@ -641,19 +593,7 @@ namespace imgui_layer
             g_rollMouseWasDown = false;
         }
 
-        g_panelDragRect = {};
-        g_panelWindowRect = {};
-        g_emojiButtonRect = {};
-        g_emojiPickerRect = {};
-        g_rewardButtonRect = {};
-        g_rewardBarRect = {};
-        g_rouletteButtonRect = {};
-        g_settingsButtonRect = {};
-        g_settingsPanelRect = {};
-        g_npcButtonRect = {};
-        g_npcPanelRect = {};
-        g_teleportButtonRect = {};
-        g_teleportPanelRect = {};
+        reset_overlay_rects();
         ensure_emoji_catalog_loaded();
 
         // Pre-cache overlay textures right after the SAH catalog scan so
@@ -666,18 +606,16 @@ namespace imgui_layer
         load_settings_icon_texture();
         load_npc_icon_texture();
         load_teleport_icon_texture();
+        load_window_bg_texture();
 
         // When the native UI is hidden (F11), suppress all overlay drawing
         // so our elements disappear in sync with the game's own UI.
         if (!g_nativeUIHidden)
         {
-            if (g_emojisEnabled)
-            {
-                draw_floating_emoji_overlays();
-                draw_lower_chat_emoji_overlay();
-            }
+            draw_floating_emoji_overlays();
+            draw_lower_chat_emoji_overlay();
 
-            // Emoji button + picker always visible so the user can re-toggle
+            // Emoji button + picker are always visible during gameplay.
             draw_emoji_overlay();
 
             if (is_game_scene_stable())
@@ -715,6 +653,11 @@ namespace imgui_layer
             }
         }
 
+        // Flush D3DX chat text before ImGui renders its draw lists so overlay
+        // panels stay above chat text.
+        if (!g_nativeUIHidden)
+            custom_chat::flush_d3dx_text();
+
         ImGui::EndFrame();
         ImGui::Render();
 
@@ -726,11 +669,6 @@ namespace imgui_layer
         auto* drawData = ImGui::GetDrawData();
         if (drawData && drawData->CmdListsCount > 0)
             ImGui_ImplDX9_RenderDrawData(drawData);
-
-        // Flush D3DX text runs AFTER ImGui so native-font text renders on
-        // top of the ImGui layer (emoji texture quads stay behind text).
-        if (!g_nativeUIHidden)
-            custom_chat::flush_d3dx_text();
 
         save_imgui_settings_if_dirty(750);
     }

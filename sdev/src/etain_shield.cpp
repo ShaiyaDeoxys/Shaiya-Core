@@ -6,7 +6,6 @@
 #include "include/etain_shield_config.h"
 #include "include/shaiya/CObject.h"
 #include "include/shaiya/CMob.h"
-#include "include/shaiya/CSkill.h"
 #include "include/shaiya/CUser.h"
 #include "include/shaiya/CZone.h"
 #include "include/shaiya/MobInfo.h"
@@ -32,14 +31,13 @@ using namespace shaiya;
 //                    violations trigger a rubber-band correction.
 //                    Detects speed hacks >= 1.1x reliably.
 //                    Also patches four native timing constants in ps_game.exe.
-//  AntiRangeHack   — Euclidean distance checks for attacks and skills
-//  AntiCutting     — Freeze movement for configurable ms after each attack
+//  AntiRangeHack   — Static euclidean distance checks for attacks and skills
 //
 //  ARCHITECTURE
 //  ------------
 //  - This file contains the C++ validation logic and the naked assembly detours.
 //  - Packet-level hooks (0x501/0x502/0x503 dispatch) live in packet_pc.cpp.
-//  - Per-user state fields live in CUser.h (etainLastPos, etainCutting*, etc.).
+//  - Per-user state fields live in CUser.h (etainLastPos, etc.).
 //  - The single entry point hook::etain_shield() installs all memory patches
 //    and detours; it is called once from Main().
 //
@@ -112,57 +110,11 @@ namespace etain_shield
     }
 
     // ===================================================================
-    //  AntiCutting — Freeze movement after attacking
-    // ===================================================================
-    //
-    //  When a player lands an attack (basic or skill), all 0x501 movement
-    //  packets are silently dropped for a configurable duration (cuttingLockMs).
-    //  The server simply ignores movement — the player's position does not
-    //  change server-side.  No correction packet is sent.
-    //
-    //  The lock renews on every attack, so continuous attacking keeps
-    //  the player rooted.  It expires naturally when no attacks occur
-    //  for cuttingLockMs.
-    //
-    //  Certain dash/displacement skills can be exempted via config.
-
-    /// Check if the user is currently executing a skill exempt from the lock.
-    static bool is_cutting_skip_skill(CUser* user)
-    {
-        if (user->attackType != UserAttackType::Skill)
-            return false;
-
-        auto idx = user->prevSkillUseIndex;
-        if (idx >= 256 || !user->skills[idx])
-            return false;
-
-        int skillId = user->skills[idx]->skillId;
-        for (auto id : g_etainConfig.cuttingSkipSkills)
-        {
-            if (id == skillId)
-                return true;
-        }
-        return false;
-    }
-
-    void lock_movement_for_attack(CUser* user)
-    {
-        if (!g_etainConfig.enabled || !g_etainConfig.cuttingEnabled)
-            return;
-
-        if (is_cutting_skip_skill(user))
-            return;
-
-        user->etainCuttingUntil = GetTickCount() + g_etainConfig.cuttingLockMs;
-    }
-
-    // ===================================================================
-    //  AntiSpeedHack — Active Movement Validation  +  AntiCutting
+    //  AntiSpeedHack — Active Movement Validation
     // ===================================================================
     //
     //  validate_movement() is the single entry point for every 0x501
-    //  packet.  It runs both the AntiCutting check and the speed
-    //  validation in sequence.
+    //  packet.  It runs the speed validation.
     //
     //  Speed validation uses calibrated coefficients measured server-side
     //  via OutputDebugString logging of actual 0x501 packet distances/times.
@@ -189,18 +141,6 @@ namespace etain_shield
             return true;
 
         auto now = GetTickCount();
-
-        // --- AntiCutting ---
-        // If a cutting lock is active, silently drop the movement packet.
-        // The server position does not change — the player simply cannot move.
-        if (g_etainConfig.cuttingEnabled && user->etainCuttingUntil != 0
-            && static_cast<int32_t>(now - user->etainCuttingUntil) < 0)
-        {
-            // Keep speed-hack tracking in sync so the first move after
-            // the lock expires isn't measured from a stale position.
-            user->etainLastMoveTick = now;
-            return false;
-        }
 
         // --- AntiSpeedHack ---
         if (!g_etainConfig.speedHackEnabled)
@@ -283,7 +223,6 @@ namespace etain_shield
         user->etainLastPos          = {};
         user->etainLastMoveTick     = 0;
         user->etainViolationCount   = 0;
-        user->etainCuttingUntil     = 0;
     }
 
     // ===================================================================
@@ -298,21 +237,6 @@ namespace etain_shield
     //  positions and compare against:
     //    allowed = max(abilityAttackRange, skillRange) + targetSize + margin
 
-    /// Returns true if a mob is currently moving (chasing a target).
-    static bool is_mob_moving(CMob* mob)
-    {
-        return mob->status == MobStatus::Chase;
-    }
-
-    /// Returns true if a user target has moved recently (within ~500ms).
-    static bool is_user_moving(CUser* target)
-    {
-        if (target->etainLastMoveTick == 0)
-            return false;
-        auto elapsed = GetTickCount() - target->etainLastMoveTick;
-        return elapsed < 500;
-    }
-
     int validate_pve_range(CUser* user, CMob* mob, int skillRange)
     {
         if (!g_etainConfig.enabled || !g_etainConfig.rangeHackEnabled)
@@ -326,10 +250,8 @@ namespace etain_shield
         int range = user->abilityAttackRange;
         if (skillRange > range) range = skillRange;
 
-        int grace = is_mob_moving(mob) ? g_etainConfig.rangeMovingGrace : 0;
-
         float allowed = static_cast<float>(
-            range + static_cast<int>(mob->info->size) + g_etainConfig.rangeMargin + grace);
+            range + static_cast<int>(mob->info->size) + g_etainConfig.rangeMargin);
 
         return (dist <= allowed) ? 1 : 0;
     }
@@ -347,9 +269,7 @@ namespace etain_shield
         int range = attacker->abilityAttackRange;
         if (skillRange > range) range = skillRange;
 
-        int grace = is_user_moving(target) ? g_etainConfig.rangeMovingGrace : 0;
-
-        float allowed = static_cast<float>(range + 1 + g_etainConfig.rangeMargin + grace);
+        float allowed = static_cast<float>(range + 1 + g_etainConfig.rangeMargin);
 
         return (dist <= allowed) ? 1 : 0;
     }
@@ -366,11 +286,9 @@ namespace etain_shield
         if (!target)
             return 1;
 
-        int grace = is_user_moving(target) ? g_etainConfig.rangeMovingGrace : 0;
-
         float dist = distance_2d(user_pos(user), user_pos(target));
         float allowed = static_cast<float>(
-            user->abilityAttackRange + 1 + g_etainConfig.rangeMargin + grace);
+            user->abilityAttackRange + 1 + g_etainConfig.rangeMargin);
 
         return (dist <= allowed) ? 1 : 0;
     }
@@ -387,12 +305,10 @@ namespace etain_shield
         if (!mob || !mob->info)
             return 1;
 
-        int grace = is_mob_moving(mob) ? g_etainConfig.rangeMovingGrace : 0;
-
         float dist = distance_2d(user_pos(user), mob_pos(mob));
         float allowed = static_cast<float>(
             user->abilityAttackRange + static_cast<int>(mob->info->size) +
-            g_etainConfig.rangeMargin + grace);
+            g_etainConfig.rangeMargin);
 
         return (dist <= allowed) ? 1 : 0;
     }
@@ -417,11 +333,11 @@ bool __cdecl EnableAttackRange(
 }
 
 // ===========================================================================
-//  Naked assembly detours — AntiRangeHack Layer B + AntiCutting lock
+//  Naked assembly detours — AntiRangeHack Layer B
 // ===========================================================================
 //
 //  Each detour replaces the prologue of a native range-check function.
-//  On pass: call lock_movement_for_attack(), restore original prologue, jump in.
+//  On pass: restore original prologue and jump in.
 //  On fail: return al=0 immediately.
 
 // --- PVE: 0x458000 ---
@@ -444,12 +360,6 @@ void __declspec(naked) naked_0x458000()
         test eax,eax
         popad
         jz blocked
-
-        pushad
-        push ebx                // user
-        call etain_shield::lock_movement_for_attack
-        add esp,0x4
-        popad
 
         sub esp,0x10
         push ebp
@@ -481,12 +391,6 @@ void __declspec(naked) naked_0x457F50()
         popad
         jz blocked
 
-        pushad
-        push edi                // user
-        call etain_shield::lock_movement_for_attack
-        add esp,0x4
-        popad
-
         sub esp,0x18
         mov eax,[edi+0x12F0]
         jmp u0x457F59
@@ -517,7 +421,6 @@ void hook::etain_shield()
         util::detour((void*)0x457F50, naked_0x457F50, 9);
     }
 
-    // AntiSpeedHack active validation and AntiCutting are checked at
-    // runtime inside validate_movement() — their hooks live in packet_pc.cpp
-    // (0x501 / 0x502 / 0x503 dispatch).
+    // AntiSpeedHack active validation is checked at runtime inside
+    // validate_movement() — its hook lives in packet_pc.cpp (0x501 dispatch).
 }

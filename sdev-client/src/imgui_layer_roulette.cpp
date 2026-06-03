@@ -269,8 +269,6 @@ namespace imgui_layer {
         }
     }
 
-    // draw_roulette_reward_cell and draw_roulette_reward_grid removed — tooltips on wheel items
-
     void draw_roulette_section()
     {
         auto now = GetTickCount();

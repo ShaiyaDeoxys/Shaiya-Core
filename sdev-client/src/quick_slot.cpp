@@ -5,6 +5,7 @@
 #include <windows.h>
 #include <util/util.h>
 #include "include/main.h"
+#include "include/config.h"
 #include "include/shaiya/CQuickSlot.h"
 #include "include/shaiya/Unknown.h"
 #include "include/shaiya/Static.h"
@@ -14,7 +15,7 @@ namespace quick_slot
 {
     const char* get_interface_data_path()
     {
-        return "data/interface";
+        return config::ui_interface_path();
     }
 
     void get_configuration(Unknown* unknown)
@@ -364,6 +365,4 @@ void hook::quick_slot()
     util::write_memory((void*)0x5DEC7F, "\x90\x90\x90\x90\x90\x90", 6);
     // Basic action delay.
     util::write_memory((void*)0x4FEB78, 0x90, 6);
-    // Revolver delay. Disabled for release stability.
-    // util::write_memory((void*)0x50819C, 0x90, 6);
 }

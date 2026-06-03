@@ -13,13 +13,11 @@ float Float_X_Raid_2 = 402.0f;
 float Float_X_Raid_3 = 424.0f;
 float Float_X_Raid_4 = 446.0f;
 float Float_X_Raid_5 = 468.0f;
-// Raid 150 component: these buttons are loaded through the client's texture
-// loader, so keep them as PNG to match the current interface asset pipeline.
-const char* Raid_Button_1_Targa = "RaidButton1.png";
-const char* Raid_Button_2_Targa = "RaidButton2.png";
-const char* Raid_Button_3_Targa = "RaidButton3.png";
-const char* Raid_Button_4_Targa = "RaidButton4.png";
-const char* Raid_Button_5_Targa = "RaidButton5.png";
+const char* Raid_Button_1_Png = "RaidButton1.png";
+const char* Raid_Button_2_Png = "RaidButton2.png";
+const char* Raid_Button_3_Png = "RaidButton3.png";
+const char* Raid_Button_4_Png = "RaidButton4.png";
+const char* Raid_Button_5_Png = "RaidButton5.png";
 unsigned Button_Call = 0x429FD0;
 unsigned Button_Call_2 = 0x54FCE0;
 unsigned Button_Call_3 = 0x54F100;
@@ -80,16 +78,16 @@ __declspec(naked) void Raid_Button_1()
         mov[esi + 0x0000210C], ebx
         fst dword ptr ds : [esi + 0x00002140]
         fst dword ptr ds : [esi + 0x00002144]
-        mov[esi + 0x00002120], ebx //
-        mov[esi + 0x0000211C], ebx //
-        fst dword ptr ds : [esi + 0x00002150] //
-        fst dword ptr ds : [esi + 0x00002154] //
-        mov[esi + 0x00002130], ebx //
-        mov[esi + 0x0000212C], ebx //
-        fst dword ptr ds : [esi + 0x00002160] //
-        fstp dword ptr ds : [esi + 0x00002164] //
-        mov[esi + 0x0000214C], ebx //
-        mov[esi + 0x00002148], ebx //
+        mov[esi + 0x00002120], ebx
+        mov[esi + 0x0000211C], ebx
+        fst dword ptr ds : [esi + 0x00002150]
+        fst dword ptr ds : [esi + 0x00002154]
+        mov[esi + 0x00002130], ebx
+        mov[esi + 0x0000212C], ebx
+        fst dword ptr ds : [esi + 0x00002160]
+        fstp dword ptr ds : [esi + 0x00002164]
+        mov[esi + 0x0000214C], ebx
+        mov[esi + 0x00002148], ebx
         lea ebp, [raid_btn_1]
         mov ecx, ebp
         mov byte ptr ds : [esp + 0x20] , 0x06
@@ -171,7 +169,7 @@ __declspec(naked) void Raid_Button_1()
         fld dword ptr ds : [Float_Y]
         push 0x20
         push 0x00000080
-        push Raid_Button_1_Targa
+        push Raid_Button_1_Png
         push ebx
         push 0x17
         push 0x18
@@ -249,16 +247,16 @@ __declspec(naked) void Raid_Button_2()
         mov[esi + 0x0000210C], ebx
         fst dword ptr ds : [esi + 0x00002140]
         fst dword ptr ds : [esi + 0x00002144]
-        mov[esi + 0x00002120], ebx //
-        mov[esi + 0x0000211C], ebx //
-        fst dword ptr ds : [esi + 0x00002150] //
-        fst dword ptr ds : [esi + 0x00002154] //
-        mov[esi + 0x00002130], ebx //
-        mov[esi + 0x0000212C], ebx //
-        fst dword ptr ds : [esi + 0x00002160] //
-        fstp dword ptr ds : [esi + 0x00002164] //
-        mov[esi + 0x0000214C], ebx //
-        mov[esi + 0x00002148], ebx //
+        mov[esi + 0x00002120], ebx
+        mov[esi + 0x0000211C], ebx
+        fst dword ptr ds : [esi + 0x00002150]
+        fst dword ptr ds : [esi + 0x00002154]
+        mov[esi + 0x00002130], ebx
+        mov[esi + 0x0000212C], ebx
+        fst dword ptr ds : [esi + 0x00002160]
+        fstp dword ptr ds : [esi + 0x00002164]
+        mov[esi + 0x0000214C], ebx
+        mov[esi + 0x00002148], ebx
         lea ebp, [raid_btn_2]
         mov ecx, ebp
         mov byte ptr ds : [esp + 0x20] , 0x06
@@ -340,7 +338,7 @@ __declspec(naked) void Raid_Button_2()
         fld dword ptr ds : [Float_Y]
         push 0x20
         push 0x00000080
-        push Raid_Button_2_Targa
+        push Raid_Button_2_Png
         push ebx
         push 0x17
         push 0x18
@@ -418,16 +416,16 @@ __declspec(naked) void Raid_Button_3()
         mov[esi + 0x0000210C], ebx
         fst dword ptr ds : [esi + 0x00002140]
         fst dword ptr ds : [esi + 0x00002144]
-        mov[esi + 0x00002120], ebx //
-        mov[esi + 0x0000211C], ebx //
-        fst dword ptr ds : [esi + 0x00002150] //
-        fst dword ptr ds : [esi + 0x00002154] //
-        mov[esi + 0x00002130], ebx //
-        mov[esi + 0x0000212C], ebx //
-        fst dword ptr ds : [esi + 0x00002160] //
-        fstp dword ptr ds : [esi + 0x00002164] //
-        mov[esi + 0x0000214C], ebx //
-        mov[esi + 0x00002148], ebx //
+        mov[esi + 0x00002120], ebx
+        mov[esi + 0x0000211C], ebx
+        fst dword ptr ds : [esi + 0x00002150]
+        fst dword ptr ds : [esi + 0x00002154]
+        mov[esi + 0x00002130], ebx
+        mov[esi + 0x0000212C], ebx
+        fst dword ptr ds : [esi + 0x00002160]
+        fstp dword ptr ds : [esi + 0x00002164]
+        mov[esi + 0x0000214C], ebx
+        mov[esi + 0x00002148], ebx
         lea ebp, [raid_btn_3]
         mov ecx, ebp
         mov byte ptr ds : [esp + 0x20] , 0x06
@@ -509,7 +507,7 @@ __declspec(naked) void Raid_Button_3()
         fld dword ptr ds : [Float_Y]
         push 0x20
         push 0x00000080
-        push Raid_Button_3_Targa
+        push Raid_Button_3_Png
         push ebx
         push 0x17
         push 0x18
@@ -587,16 +585,16 @@ __declspec(naked) void Raid_Button_4()
         mov[esi + 0x0000210C], ebx
         fst dword ptr ds : [esi + 0x00002140]
         fst dword ptr ds : [esi + 0x00002144]
-        mov[esi + 0x00002120], ebx //
-        mov[esi + 0x0000211C], ebx //
-        fst dword ptr ds : [esi + 0x00002150] //
-        fst dword ptr ds : [esi + 0x00002154] //
-        mov[esi + 0x00002130], ebx //
-        mov[esi + 0x0000212C], ebx //
-        fst dword ptr ds : [esi + 0x00002160] //
-        fstp dword ptr ds : [esi + 0x00002164] //
-        mov[esi + 0x0000214C], ebx //
-        mov[esi + 0x00002148], ebx //
+        mov[esi + 0x00002120], ebx
+        mov[esi + 0x0000211C], ebx
+        fst dword ptr ds : [esi + 0x00002150]
+        fst dword ptr ds : [esi + 0x00002154]
+        mov[esi + 0x00002130], ebx
+        mov[esi + 0x0000212C], ebx
+        fst dword ptr ds : [esi + 0x00002160]
+        fstp dword ptr ds : [esi + 0x00002164]
+        mov[esi + 0x0000214C], ebx
+        mov[esi + 0x00002148], ebx
         lea ebp, [raid_btn_4]
         mov ecx, ebp
         mov byte ptr ds : [esp + 0x20] , 0x06
@@ -678,7 +676,7 @@ __declspec(naked) void Raid_Button_4()
         fld dword ptr ds : [Float_Y]
         push 0x20
         push 0x00000080
-        push Raid_Button_4_Targa
+        push Raid_Button_4_Png
         push ebx
         push 0x17
         push 0x18
@@ -756,16 +754,16 @@ __declspec(naked) void Raid_Button_5()
         mov[esi + 0x0000210C], ebx
         fst dword ptr ds : [esi + 0x00002140]
         fst dword ptr ds : [esi + 0x00002144]
-        mov[esi + 0x00002120], ebx //
-        mov[esi + 0x0000211C], ebx //
-        fst dword ptr ds : [esi + 0x00002150] //
-        fst dword ptr ds : [esi + 0x00002154] //
-        mov[esi + 0x00002130], ebx //
-        mov[esi + 0x0000212C], ebx //
-        fst dword ptr ds : [esi + 0x00002160] //
-        fstp dword ptr ds : [esi + 0x00002164] //
-        mov[esi + 0x0000214C], ebx //
-        mov[esi + 0x00002148], ebx //
+        mov[esi + 0x00002120], ebx
+        mov[esi + 0x0000211C], ebx
+        fst dword ptr ds : [esi + 0x00002150]
+        fst dword ptr ds : [esi + 0x00002154]
+        mov[esi + 0x00002130], ebx
+        mov[esi + 0x0000212C], ebx
+        fst dword ptr ds : [esi + 0x00002160]
+        fstp dword ptr ds : [esi + 0x00002164]
+        mov[esi + 0x0000214C], ebx
+        mov[esi + 0x00002148], ebx
         lea ebp, [raid_btn_5]
         mov ecx, ebp
         mov byte ptr ds : [esp + 0x20] , 0x06
@@ -847,7 +845,7 @@ __declspec(naked) void Raid_Button_5()
         fld dword ptr ds : [Float_Y]
         push 0x20
         push 0x00000080
-        push Raid_Button_5_Targa
+        push Raid_Button_5_Png
         push ebx
         push 0x17
         push 0x18
@@ -879,25 +877,9 @@ __declspec(naked) void Raid_Button_5()
     }
 }
 
-unsigned Send_Buttons_To_Memory_Return = 0x42B11B;
-unsigned Button_Original = 0x5187B0;
-unsigned Pointer_Test = 0;
-__declspec(naked) void Send_Buttons_To_Memory()
-{
-    __asm
-    {
-        mov dword ptr ds : [Pointer_Test] , eax
-        //mov ecx,eax
-        call Raid_Button_3
-        mov ecx, Pointer_Test
-        call Button_Original
-        jmp Send_Buttons_To_Memory_Return
-    }
-}
-
 unsigned Send_Buttons_Call = 0x006307F3;
 unsigned u0x42B6D2 = 0x42B6D2;
-void __declspec(naked) New_Send_BUttons_To_Memory()
+void __declspec(naked) New_Send_Buttons_To_Memory()
 {
     __asm
     {
@@ -955,9 +937,6 @@ __declspec(naked) void Render_Raid_Buttons()
         call Render_Call_2
         popad
 
-        // 022FE180
-        // 022FE220
-        // 022FE2E0
         pushad
         mov eax, [edi + 0x08]
         mov ecx, [edi + 0x04]
@@ -1229,7 +1208,6 @@ void __declspec(naked) RaidInj5()
 }
 
 unsigned RaidInj6jmp = 0x4A44E0;
-unsigned RaidInj6cazz = 0x227E334;
 unsigned RaidInj6altjmp = 0x4A4B59;
 unsigned RaidInj6jgl = 0x4A491F;
 unsigned RaidInj6exjmp = 0x4A4B59;
@@ -1615,7 +1593,7 @@ void hook::raid()
     util::detour((void*)0x53F8CE, Render_Raid_Buttons, 6);
     util::detour((void*)0x53F464, Click_Raid_Button, 6);
     util::detour((void*)0x550F53, Send_Holding, 10);
-    util::detour((void*)0x42B6CB, New_Send_BUttons_To_Memory, 7);
+    util::detour((void*)0x42B6CB, New_Send_Buttons_To_Memory, 7);
 
     // Keep the extra raid labels white. The old public patch commonly forced
     // yellow text here, which clashes with the current UI readability pass.

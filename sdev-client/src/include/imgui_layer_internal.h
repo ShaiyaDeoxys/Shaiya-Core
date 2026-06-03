@@ -95,7 +95,7 @@ namespace imgui_layer
     constexpr const char* kTeleportPanelXKey = "TELEPORT_PANEL_X";
     constexpr const char* kTeleportPanelYKey = "TELEPORT_PANEL_Y";
     constexpr auto kTeleportButtonSize = ImVec2(32.0f, 33.0f);
-    constexpr auto kTeleportPanelSize = ImVec2(230.0f, 310.0f);
+    constexpr auto kTeleportPanelSize = ImVec2(210.0f, 270.0f);
     constexpr const char* kIdViewEnabledKey = "ID_VIEW_ENABLED";
     constexpr DWORD kEmojiSceneGraceMs = 4000;
 
@@ -113,7 +113,7 @@ namespace imgui_layer
     //  Shared inline state
     // -----------------------------------------------------------------------
     inline std::atomic_bool g_running = false;
-    inline bool g_idViewEnabled = true;  // mob/NPC ID overlay (GM-only, persisted)
+    inline bool g_idViewEnabled = true;
 
     // Scene stability tracking — frame debounce after screen state → in-game
     inline int      g_sceneStableFrames = 0;       // consecutive in-game frames
@@ -155,7 +155,6 @@ namespace imgui_layer
 
     void update_anchored_button_positions();
 
-    // CChat exploration — global pointer at 0x7C06F8, sub-CWindow offsets for chat_box textures.
     // Chat panel object (0x75E0-byte UI container) — captured at runtime
     // from the chat-init function at VA 0x47D1F0 (ecx = this).
     inline uintptr_t g_chatPanelPtr = 0;
@@ -187,16 +186,13 @@ namespace imgui_layer
     inline ImVec2 g_npcPanelPosition = ImVec2(-1.0f, -1.0f);
     inline ImVec2 g_teleportButtonPosition = kDefaultTeleportButtonPosition;
     inline ImVec2 g_teleportPanelPosition = ImVec2(-1.0f, -1.0f);
-    // Parallel chat font — Arial 14px with shadow (matches game D3DX font)
     inline ImFont* g_parallelFont = nullptr;
     inline bool    g_parallelFontLoaded = false;
-
     // Drag state
     inline DWORD g_lastRouletteRollTick = 0;
     inline DWORD g_lastRouletteListTick = 0;
     inline bool g_showEmojiPicker = false;
     inline bool g_chatEmojiHookInstalled = false;
-    // (native chat UI hook removed — only chat text hiding remains)
     inline bool g_draggedPanel = false;
     inline bool g_draggingPanel = false;
     inline bool g_draggingRewardButton = false;
@@ -216,8 +212,6 @@ namespace imgui_layer
     inline ImVec2 g_settingsButtonDragOffset = ImVec2(0.0f, 0.0f);
     inline ImVec2 g_npcButtonDragOffset = ImVec2(0.0f, 0.0f);
     inline ImVec2 g_teleportButtonDragOffset = ImVec2(0.0f, 0.0f);
-    inline bool g_emojisEnabled = true;
-    inline bool g_gifsEnabled = true;
     inline bool g_clearImguiActiveId = false;
     inline bool g_rollMouseWasDown = false;
     inline bool g_showSettingsPanel = false;
@@ -262,6 +256,11 @@ namespace imgui_layer
     inline uint64_t g_teleportIconDataSize = 0;
     inline bool g_teleportIconFound = false;
     inline bool g_teleportIconLoadAttempted = false;
+    inline LPDIRECT3DTEXTURE9 g_windowBgTexture = nullptr;
+    inline uint64_t g_windowBgDataOffset = 0;
+    inline uint64_t g_windowBgDataSize = 0;
+    inline bool g_windowBgFound = false;
+    inline bool g_windowBgLoadAttempted = false;
 
     // Roulette panel layout
     constexpr float kRollButtonOffsetX = -1.0f;
@@ -472,6 +471,7 @@ namespace imgui_layer
     void ensure_emoji_catalog_loaded();
     void release_emoji_textures();
     EmojiEntry* find_emoji_by_token(const char* text);
+    bool is_visual_token_enabled(VisualTokenKind kind);
     LPDIRECT3DTEXTURE9 get_emoji_texture(EmojiEntry& emoji);
     float get_chat_text_width();
     float measure_chat_prefix_width(const std::string& prefix);
@@ -485,6 +485,9 @@ namespace imgui_layer
     LPDIRECT3DTEXTURE9 load_roulette_icon_texture();
     LPDIRECT3DTEXTURE9 load_settings_icon_texture();
     LPDIRECT3DTEXTURE9 load_npc_icon_texture();
+    LPDIRECT3DTEXTURE9 load_window_bg_texture();
+    void draw_window_background();
+    void draw_panel_title_with_close(const char* title, bool& open);
     const char* __cdecl prepare_chat_text_for_emojis(int chatType, const char* text);
     const char* __cdecl prepare_static_text_for_emojis(const char* text);
     const char* __cdecl prepare_floating_text_for_emojis(const char* text);
@@ -503,7 +506,6 @@ namespace imgui_layer
     void sync_map_transition_state();
     bool is_map_transition_active();
     bool is_overlay_display_usable(const ImVec2& size);
-    bool is_game_window_foreground();
     bool get_overlay_mouse_pos_raw(ImVec2& pos);
     bool is_pos_in_rect_raw(const ImVec2& pos, const RECT& rect);
     bool is_cursor_in_rect(const RECT& rect);

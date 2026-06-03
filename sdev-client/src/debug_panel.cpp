@@ -1,13 +1,16 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <cmath>
+#include <cstring>
 
 #include <external/imgui/imgui.h>
 #include "include/custom_chat.h"
 #include "include/debug_panel.h"
 #include "include/imgui_layer_internal.h"
-#include "include/speed_monitor.h"
 #include "include/shaiya/CDataFile.h"
+#include "include/shaiya/CMonster.h"
 #include "include/shaiya/ItemInfo.h"
+#include "include/shaiya/TargetType.h"
 #include "include/shaiya/Vehicle.h"
 
 namespace vehicle
@@ -25,7 +28,7 @@ namespace debug_panel
         bool g_showDebugPanel = false;
         bool g_f9Down = false;
         bool g_stateLoaded = false;
-        int g_openModule = 1;
+        int g_openModule = 0;
 
         enum DebugModule
         {
@@ -35,6 +38,7 @@ namespace debug_panel
             kModuleMountUtility,
             kModuleEffectPlayer,
             kModuleSceneDetector,
+            kModuleLoginVersion,
             kModuleCount
         };
 
@@ -78,6 +82,8 @@ namespace debug_panel
                 return "Effects";
             case kModuleSceneDetector:
                 return "Scene";
+            case kModuleLoginVersion:
+                return "LoginVer";
             default:
                 return "";
             }
@@ -234,6 +240,100 @@ namespace debug_panel
             ImGui::BulletText("6 = In-game");
         }
 
+        // --- Login Version ---
+
+        constexpr uintptr_t kLoginVersionAddr = 0x7AB0D4;
+
+        struct LoginVersionEntry
+        {
+            int version;
+            const char* label;
+        };
+
+        constexpr LoginVersionEntry kLoginVersions[] = {
+            {  0, "Default" },
+            {  1, "Korea" },
+            {  2, "Japan" },
+            {  3, "Vietnam" },
+            {  4, "Philippines" },
+            {  5, "China" },
+            {  6, "Thailand" },
+            {  7, "Russia" },
+            {  8, "Germany" },
+            {  9, "Taiwan" },
+            { 10, "Brazil" },
+            { 11, "Hong Kong" },
+            { 12, "Turkey" },
+            { 13, "Portugal" },
+            { 14, "France" },
+            { 15, "Spain" },
+            { 16, "Italy" },
+            { 17, "Vietnam Telex" },
+        };
+        constexpr int kLoginVersionCount = static_cast<int>(std::size(kLoginVersions));
+
+        const char* login_version_label(int version)
+        {
+            for (auto& entry : kLoginVersions)
+                if (entry.version == version)
+                    return entry.label;
+            return "Unknown";
+        }
+
+        void render_login_version()
+        {
+            auto* ptr = reinterpret_cast<int*>(kLoginVersionAddr);
+            int current = *ptr;
+
+            ImGui::TextDisabled("Runtime LoginVersion at 0x7AB0D4.");
+            ImGui::TextDisabled("Controls text rendering, keyboard handling, and codepage.");
+            ImGui::Spacing();
+
+            ImGui::Text("Current: %d  —  %s", current, login_version_label(current));
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            if (ImGui::BeginTable("##lv_table", 3,
+                    ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg
+                        | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp,
+                    ImVec2(0.0f, 0.0f)))
+            {
+                ImGui::TableSetupScrollFreeze(0, 1);
+                ImGui::TableSetupColumn("Ver", ImGuiTableColumnFlags_WidthFixed, 32.0f);
+                ImGui::TableSetupColumn("Region", ImGuiTableColumnFlags_WidthStretch);
+                ImGui::TableSetupColumn("##set", ImGuiTableColumnFlags_WidthFixed, 40.0f);
+                ImGui::TableHeadersRow();
+
+                for (int i = 0; i < kLoginVersionCount; ++i)
+                {
+                    auto& entry = kLoginVersions[i];
+                    ImGui::PushID(i);
+                    ImGui::TableNextRow();
+
+                    ImGui::TableNextColumn();
+                    bool isActive = (entry.version == current);
+                    if (isActive)
+                        ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1,
+                            ImGui::GetColorU32(ImGuiCol_HeaderActive));
+                    ImGui::Text("%d", entry.version);
+
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted(entry.label);
+
+                    ImGui::TableNextColumn();
+                    if (isActive)
+                        ImGui::TextDisabled("active");
+                    else if (ImGui::SmallButton("Set"))
+                        *ptr = entry.version;
+
+                    ImGui::PopID();
+                }
+
+                ImGui::EndTable();
+            }
+        }
+
         // --- Mount Utility ---
         // Edit bone1 (reqRec) and bone2 (reqInt) on vehicle items live.
         // Changes update both the Vehicle runtime vector and the in-memory
@@ -360,7 +460,127 @@ namespace debug_panel
                     ImGui::TextDisabled("(not a custom mount)");
             }
         }
-    }
+
+        // --- Speed Monitor ---
+
+        constexpr int kSpeedSampleCount = 20;
+        constexpr float kSpeedMinDt = 0.0001f;
+
+        float g_speedSamples[kSpeedSampleCount]{};
+        int   g_speedSampleIdx = 0;
+        bool  g_speedSamplesFull = false;
+        LARGE_INTEGER g_speedLastTime{};
+        LARGE_INTEGER g_speedFreq{};
+        bool g_speedTimerInit = false;
+        D3DVECTOR g_speedLastPos{};
+        bool g_speedHasLastPos = false;
+        float g_speedCurrent = 0.0f;
+        float g_speedPeak = 0.0f;
+        uint32_t g_speedTrackedId = 0;
+        shaiya::TargetType g_speedTrackedType = shaiya::TargetType::Default;
+
+        void reset_speed_tracking()
+        {
+            std::memset(g_speedSamples, 0, sizeof(g_speedSamples));
+            g_speedSampleIdx = 0;
+            g_speedSamplesFull = false;
+            g_speedHasLastPos = false;
+            g_speedCurrent = 0.0f;
+            g_speedPeak = 0.0f;
+            g_speedTrackedId = 0;
+            g_speedTrackedType = shaiya::TargetType::Default;
+        }
+
+        void render_speed_monitor()
+        {
+            using namespace shaiya;
+
+            if (!g_speedTimerInit)
+            {
+                QueryPerformanceFrequency(&g_speedFreq);
+                QueryPerformanceCounter(&g_speedLastTime);
+                g_speedTimerInit = true;
+            }
+
+            LARGE_INTEGER now;
+            QueryPerformanceCounter(&now);
+            float dt = static_cast<float>(now.QuadPart - g_speedLastTime.QuadPart)
+                     / static_cast<float>(g_speedFreq.QuadPart);
+            g_speedLastTime = now;
+
+            auto targetId = g_var->targetId;
+            auto targetType = g_var->targetType;
+            if (targetId == 0 || targetType == TargetType::Item || targetType == TargetType::Default)
+            {
+                targetId = 0;
+                targetType = TargetType::Default;
+            }
+            if (targetId != g_speedTrackedId || targetType != g_speedTrackedType)
+            {
+                std::memset(g_speedSamples, 0, sizeof(g_speedSamples));
+                g_speedSampleIdx = 0;
+                g_speedSamplesFull = false;
+                g_speedHasLastPos = false;
+                g_speedCurrent = 0.0f;
+                g_speedTrackedId = targetId;
+                g_speedTrackedType = targetType;
+            }
+
+            D3DVECTOR pos{};
+            const char* name = "N/A";
+            uint8_t moveSpeed = 0;
+            bool valid = false;
+
+            if (targetId != 0 && targetType == TargetType::User)
+            {
+                auto* user = CWorldMgr::FindUser(targetId);
+                if (user) { pos = user->pos; name = user->charName.data(); moveSpeed = user->moveSpeed; valid = true; }
+            }
+            else if (targetId != 0 && (targetType == TargetType::Mob || targetType == TargetType::Npc))
+            {
+                auto* mob = CWorldMgr::FindMob(targetId);
+                if (mob) { pos = mob->pos; name = "(Mob/NPC)"; moveSpeed = mob->moveSpeed; valid = true; }
+            }
+            if (!valid && g_pWorldMgr && g_pWorldMgr->user)
+            {
+                auto* self = g_pWorldMgr->user;
+                pos = self->pos; name = self->charName.data(); moveSpeed = self->moveSpeed; valid = true;
+            }
+
+            if (valid)
+            {
+                if (g_speedHasLastPos && dt > kSpeedMinDt)
+                {
+                    float dx = pos.x - g_speedLastPos.x;
+                    float dz = pos.z - g_speedLastPos.z;
+                    float instantSpeed = std::sqrtf(dx * dx + dz * dz) / dt;
+                    g_speedSamples[g_speedSampleIdx] = instantSpeed;
+                    g_speedSampleIdx = (g_speedSampleIdx + 1) % kSpeedSampleCount;
+                    if (g_speedSampleIdx == 0) g_speedSamplesFull = true;
+
+                    int count = g_speedSamplesFull ? kSpeedSampleCount : g_speedSampleIdx;
+                    float sum = 0.0f;
+                    for (int i = 0; i < count; ++i) sum += g_speedSamples[i];
+                    g_speedCurrent = count > 0 ? sum / static_cast<float>(count) : 0.0f;
+                    if (g_speedCurrent > g_speedPeak) g_speedPeak = g_speedCurrent;
+                }
+                g_speedLastPos = pos;
+                g_speedHasLastPos = true;
+            }
+
+            ImGui::Text("Target: %s", name);
+            ImGui::SameLine();
+            ImGui::TextDisabled("(stat: %u)", moveSpeed);
+            ImGui::Text("Speed:  %.1f", g_speedCurrent);
+            ImGui::SameLine();
+            ImGui::Text("  Peak: %.1f", g_speedPeak);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Reset##speed"))
+                reset_speed_tracking();
+            if (valid)
+                ImGui::TextDisabled("Pos: %.1f, %.1f, %.1f", pos.x, pos.y, pos.z);
+        }
+    } // namespace (anonymous)
 
     void render()
     {
@@ -403,7 +623,7 @@ namespace debug_panel
             render_id_view_options();
             break;
         case kModuleSpeedMonitor:
-            speed_monitor::render_options();
+            render_speed_monitor();
             break;
         case kModuleChatOptions:
             custom_chat::render_options();
@@ -416,6 +636,9 @@ namespace debug_panel
             break;
         case kModuleSceneDetector:
             render_scene_detector();
+            break;
+        case kModuleLoginVersion:
+            render_login_version();
             break;
         }
 

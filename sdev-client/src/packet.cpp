@@ -614,7 +614,6 @@ void __declspec(naked) naked_0x5F1E10()
         je teleport_packet
         cmp eax,0x839
         je teleport_packet
-
         popad
         mov edx,dword ptr [esp+0x4]
         movzx eax,dx
@@ -649,6 +648,7 @@ void __declspec(naked) naked_0x5F1E10()
 
         popad
         ret
+
     }
 }
 

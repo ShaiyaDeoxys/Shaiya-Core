@@ -57,30 +57,23 @@ namespace imgui_layer {
             g_teleportPanelPosition = clamp_window_position(g_teleportPanelPosition, kTeleportPanelSize, io.DisplaySize);
         }
 
-        // Dynamically size the panel based on destination count
         auto count = teleport_event::destinationCount;
-        float contentHeight = 52.0f + static_cast<float>(count > 0 ? count : 1) * 30.0f;
-        if (contentHeight < 80.0f)
-            contentHeight = 80.0f;
-        if (contentHeight > kTeleportPanelSize.y)
-            contentHeight = kTeleportPanelSize.y;
-
-        auto panelSize = ImVec2(kTeleportPanelSize.x, contentHeight);
 
         ImGui::SetNextWindowPos(g_teleportPanelPosition, ImGuiCond_Appearing);
-        ImGui::SetNextWindowSize(panelSize, ImGuiCond_Always);
-        ImGui::SetNextWindowBgAlpha(0.94f);
+        ImGui::SetNextWindowSize(kTeleportPanelSize, ImGuiCond_Always);
+        ImGui::SetNextWindowBgAlpha(g_windowBgTexture ? 0.0f : 0.94f);
 
-        bool panelOpen = g_showTeleportPanel;
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 14.0f));
         if (ImGui::Begin(
-            "Teleport",
-            &panelOpen,
-            ImGuiWindowFlags_NoCollapse
+            "##teleport_panel",
+            nullptr,
+            ImGuiWindowFlags_NoTitleBar
                 | ImGuiWindowFlags_NoResize
                 | ImGuiWindowFlags_NoSavedSettings
                 | ImGuiWindowFlags_NoFocusOnAppearing
                 | ImGuiWindowFlags_NoBringToFrontOnFocus))
         {
+            draw_window_background();
             auto pos = ImGui::GetWindowPos();
             auto size = ImGui::GetWindowSize();
             remember_rect(g_teleportPanelRect, pos, ImVec2(pos.x + size.x, pos.y + size.y));
@@ -91,7 +84,11 @@ namespace imgui_layer {
                 mark_imgui_settings_dirty();
             }
 
-            // Show result message briefly after a failed move
+            bool panelOpen = g_showTeleportPanel;
+            draw_panel_title_with_close("Teleport", panelOpen);
+            if (!panelOpen)
+                g_showTeleportPanel = false;
+
             if (teleport_event::lastMoveRequested
                 && teleport_event::lastMoveResult != GameTeleportMoveResult::Success)
             {
@@ -114,6 +111,7 @@ namespace imgui_layer {
             }
             else
             {
+                ImGui::BeginChild("##tp_scroll", ImVec2(0.0f, 0.0f), false);
                 auto playerLevel = g_pPlayerData ? g_pPlayerData->level : 0;
                 ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f, 5.0f));
 
@@ -121,19 +119,16 @@ namespace imgui_layer {
                 {
                     const auto& dest = teleport_event::destinations[i];
 
-                    // Null-terminate safely
                     char name[kTeleportNameLength + 1]{};
                     std::memcpy(name, dest.name, kTeleportNameLength);
                     name[kTeleportNameLength] = '\0';
 
-                    // Check level requirements
                     bool levelOk = true;
                     if (dest.levelMin > 0 && playerLevel < dest.levelMin)
                         levelOk = false;
                     if (dest.levelMax > 0 && playerLevel > dest.levelMax)
                         levelOk = false;
 
-                    // Build label with level range
                     char label[128]{};
                     if (dest.levelMin > 0 && dest.levelMax > 0)
                         std::snprintf(label, sizeof(label), "%s (Lv%u-%u)##tp_%u", name, dest.levelMin, dest.levelMax, i);
@@ -161,11 +156,11 @@ namespace imgui_layer {
                 }
 
                 ImGui::PopStyleVar();
+                ImGui::EndChild();
             }
         }
         ImGui::End();
-
-        g_showTeleportPanel = panelOpen;
+        ImGui::PopStyleVar();
     }
 
     void draw_teleport_button_overlay()

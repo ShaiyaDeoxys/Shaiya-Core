@@ -153,9 +153,9 @@ namespace imgui_layer
         return kind == VisualTokenKind::Gif ? "gif" : "emoji";
     }
 
-    bool is_visual_token_enabled(VisualTokenKind kind)
+    bool is_visual_token_enabled(VisualTokenKind)
     {
-        return kind == VisualTokenKind::Gif ? g_gifsEnabled : g_emojisEnabled;
+        return true;
     }
 
     bool match_visual_token_text(const char* text, VisualTokenKind& kind, std::size_t& tokenLength)
@@ -295,6 +295,12 @@ namespace imgui_layer
                     g_teleportIconDataOffset = entry.offset;
                     g_teleportIconDataSize = entry.size;
                 }
+                else if (entry.lowerFileName == "window.png" && !g_windowBgFound)
+                {
+                    g_windowBgFound = true;
+                    g_windowBgDataOffset = entry.offset;
+                    g_windowBgDataSize = entry.size;
+                }
             }
         });
 
@@ -382,6 +388,11 @@ namespace imgui_layer
     LPDIRECT3DTEXTURE9 load_npc_icon_texture()
     {
         return load_saf_texture(g_npcIconTexture, g_npcIconLoadAttempted, g_npcIconFound, g_npcIconDataOffset, g_npcIconDataSize);
+    }
+
+    LPDIRECT3DTEXTURE9 load_window_bg_texture()
+    {
+        return load_saf_texture(g_windowBgTexture, g_windowBgLoadAttempted, g_windowBgFound, g_windowBgDataOffset, g_windowBgDataSize);
     }
 
     bool ensure_gdiplus_started()
@@ -707,18 +718,6 @@ namespace imgui_layer
         return clamp_window_position(pos, pickerSize, displaySize);
     }
 
-    bool is_native_screen_notice_chat_type(int chatType)
-    {
-        // These types use the chat insertion path but also drive native
-        // on-screen notice/raid-style text.  Returning an empty string for
-        // them hides the notice payload and leaves the game with a tiny blank
-        // balloon, so CUSTOMCHAT only suppresses regular upper/lower chat box
-        // text and lets these native presentation paths keep their message.
-        return chatType == 23 || chatType == 24 || chatType == 25 ||
-               chatType == 28 || chatType == 29 || chatType == 30 ||
-               chatType == 48 || chatType == 50;
-    }
-
     static float measure_chat_prefix_width_fallback(const char* text, int len)
     {
         auto w = 0.0f;
@@ -733,8 +732,8 @@ namespace imgui_layer
             return 0.0f;
 
         // Guard: only call the native measure function when the game is
-        // fully loaded — avoids intermittent crash at startup when the
-        // The native text-measure object is not initialized during startup.
+        // fully loaded — the native text-measure object is not initialized
+        // during startup.
         if (!is_game_scene())
             return measure_chat_prefix_width_fallback(prefix.c_str(), static_cast<int>(prefix.size()));
 
@@ -1607,19 +1606,6 @@ namespace imgui_layer
         return clicked;
     }
 
-    void draw_visual_token_picker_controls()
-    {
-        auto changed = false;
-        changed |= ImGui::Checkbox("Emojis", &g_emojisEnabled);
-        ImGui::SameLine();
-        changed |= ImGui::Checkbox("Gifs", &g_gifsEnabled);
-
-        if (changed)
-            save_imgui_settings();
-
-        ImGui::Separator();
-    }
-
     void draw_emoji_overlay()
     {
         if (!is_game_scene() || is_emoji_transition_grace_active())
@@ -1702,7 +1688,6 @@ namespace imgui_layer
             remember_rect(g_emojiPickerRect, pos, ImVec2(pos.x + size.x, pos.y + size.y));
 
             const auto iconSize = kEmojiPickerIconSize;
-            draw_visual_token_picker_controls();
             if (ImGui::BeginTabBar("##visual_token_tabs", ImGuiTabBarFlags_NoCloseWithMiddleMouseButton))
             {
                 if (ImGui::BeginTabItem("Emojis"))

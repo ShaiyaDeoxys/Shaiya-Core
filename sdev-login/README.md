@@ -12,7 +12,7 @@
 
 ## Installed Hooks
 
-All active hooks are installed from `src/main.cpp`:
+Active hooks are installed from `src/main.cpp`; GM Security policy lives in `src/gm_security.cpp`.
 
 ```cpp
 // GetUser (GM Security)

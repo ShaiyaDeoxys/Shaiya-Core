@@ -23,12 +23,6 @@
 //    [AntiRangeHack]
 //    Enabled=1                   ; Toggle for range-hack protections
 //    Margin=4                    ; Extra tolerance added to every range check
-//    MovingGrace=5               ; Additional tolerance for moving targets (~5m)
-//
-//    [AntiCutting]
-//    Enabled=1                   ; Toggle for anti-cutting protection
-//    LockMs=500                  ; Movement freeze duration after each attack (ms)
-//    SkipSkillIds=56             ; Comma-separated skill IDs exempt from lock (dash skills)
 //
 
 struct EtainShieldConfig
@@ -45,12 +39,6 @@ struct EtainShieldConfig
     // [AntiRangeHack]
     bool         rangeHackEnabled        = true;
     int          rangeMargin             = 4;
-    int          rangeMovingGrace        = 5;   // Extra range tolerance for moving targets
-
-    // [AntiCutting]
-    bool              cuttingEnabled          = true;
-    uint32_t          cuttingLockMs           = 500;  // Movement freeze duration after attack (ms)
-    std::vector<int>  cuttingSkipSkills;              // Skill IDs exempt from lock (dash-type)
 };
 
 /// Global config instance — loaded once at startup, read at runtime.

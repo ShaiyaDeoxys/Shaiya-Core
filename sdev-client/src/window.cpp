@@ -1,30 +1,32 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <util/util.h>
-#include <imm.h>
 #include <array>
 #include <algorithm>
 #include <shaiya/include/network/game/incoming/0800.h>
 #include <shaiya/include/network/game/outgoing/0800.h>
 #include "include/main.h"
+#include "include/config.h"
 #include "include/shaiya/CNetwork.h"
 #include "include/shaiya/CQuickSlot.h"
-#include "include/shaiya/Static.h" // g_var client/window state
+#include "include/shaiya/Static.h"
 #include "include/shaiya/Unknown.h"
 using namespace shaiya;
-#pragma comment(lib, "imm32.lib")
 
 namespace window
 {
     inline HWND g_hookedGameHwnd = nullptr;
     inline WNDPROC g_originalGameWndProc = nullptr;
-    inline bool g_hwndIsUnicode = false;
-    constexpr wchar_t kDefaultGameWindowTitle[] = L"Shaiya";
     inline DWORD g_nextTitleRefreshTick = 0;
+
+    // -- Window title (custom title + "Playing as CharName") --
+
+    using SetWindowTextAProc = BOOL(WINAPI*)(HWND, LPCSTR);
+    inline SetWindowTextAProc g_originalSetWindowTextA = nullptr;
 
     void refresh_game_window_title(HWND hwnd, bool force)
     {
-        if (!hwnd || !g_hwndIsUnicode)
+        if (!hwnd)
             return;
 
         auto now = GetTickCount();
@@ -32,76 +34,70 @@ namespace window
             return;
 
         g_nextTitleRefreshTick = now + 1000;
-        DefWindowProcW(hwnd, WM_SETTEXT, 0, reinterpret_cast<LPARAM>(kDefaultGameWindowTitle));
+        char title[256]{};
+        config::build_window_title(title, sizeof(title));
+        DefWindowProcA(hwnd, WM_SETTEXT, 0, reinterpret_cast<LPARAM>(title));
     }
 
-    void copy_composition_string(HIMC context, DWORD index, wchar_t (&output)[64])
+    BOOL WINAPI hooked_set_window_text_a(HWND hwnd, LPCSTR text)
     {
-        output[0] = L'\0';
-        if (!context)
-            return;
-
-        auto bytes = ImmGetCompositionStringW(context, index, nullptr, 0);
-        if (bytes <= 0)
-            return;
-
-        auto bytesToCopy = std::min<LONG>(bytes, static_cast<LONG>(sizeof(output) - sizeof(wchar_t)));
-        auto copied = ImmGetCompositionStringW(context, index, output, static_cast<DWORD>(bytesToCopy));
-        if (copied <= 0)
+        if (g_hookedGameHwnd && hwnd == g_hookedGameHwnd)
         {
-            output[0] = L'\0';
-            return;
+            char title[256]{};
+            config::build_window_title(title, sizeof(title));
+            return g_originalSetWindowTextA
+                ? g_originalSetWindowTextA(hwnd, title)
+                : SetWindowTextA(hwnd, title);
         }
-
-        auto chars = copied / static_cast<LONG>(sizeof(wchar_t));
-        output[std::min<std::size_t>(chars, std::size(output) - 1)] = L'\0';
+        return g_originalSetWindowTextA
+            ? g_originalSetWindowTextA(hwnd, text)
+            : SetWindowTextA(hwnd, text);
     }
 
-    bool inject_unicode_textbox_input(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+    void install_window_title_hook()
     {
-        // The main GAME window is upgraded to Unicode by patch.cpp. For Unicode
-        // HWNDs, composed input such as Vietnamese arrives as real UTF-16
-        // WM_CHAR/IME text; feed that directly into the game's UTF-8 textbox
-        // buffer instead of letting the stock ANSI path collapse it to '?'.
-        if (IsWindowUnicode(hwnd) && msg == WM_CHAR && wParam == VK_BACK)
-        {
-            auto textBox = &g_var->input.textBox;
-            if (backspace_utf8_textbox_char(textBox))
-                return true;
-        }
+        auto importSlot = reinterpret_cast<SetWindowTextAProc*>(0x746494);
+        if (!g_originalSetWindowTextA)
+            g_originalSetWindowTextA = *importSlot;
+        auto hook = &hooked_set_window_text_a;
+        util::write_memory(importSlot, &hook, sizeof(hook));
+    }
 
-        if (msg == WM_CHAR && wParam > 0x7F)
-        {
-            auto textBox = &g_var->input.textBox;
-            return append_utf8_textbox_wchar(textBox, static_cast<wchar_t>(wParam));
-        }
+    void append_textbox_text(void* textBox, const char* text)
+    {
+        if (!textBox || !text)
+            return;
 
-        if (msg != WM_IME_COMPOSITION || (lParam & GCS_RESULTSTR) == 0)
-            return false;
+        auto count = static_cast<uint32_t>(std::strlen(text));
+        if (!count)
+            return;
 
-        auto context = ImmGetContext(hwnd);
-        if (!context)
-            return false;
+        auto base = reinterpret_cast<uint8_t*>(textBox);
+        auto maxLen = *reinterpret_cast<uint32_t*>(base + 0x30);
+        auto size = *reinterpret_cast<uint32_t*>(base + 0xC0);
+        auto cap = *reinterpret_cast<uint32_t*>(base + 0xC4);
+        if (size >= 2048 || cap >= 0x100000)
+            return;
 
-        wchar_t result[64]{};
-        copy_composition_string(context, GCS_RESULTSTR, result);
-        ImmReleaseContext(hwnd, context);
+        auto textObj = base + 0xAC;
+        auto cur = cap >= 0x10
+            ? *reinterpret_cast<const char**>(textObj + 0x04)
+            : reinterpret_cast<const char*>(textObj + 0x04);
+        if (!cur)
+            return;
 
-        if (result[0] == L'\0')
-            return false;
+        auto next = size + count;
+        if (next >= 2048 || (maxLen && next > maxLen))
+            return;
 
-        auto textBox = &g_var->input.textBox;
+        char merged[2048]{};
+        if (size)
+            std::memcpy(merged, cur, size);
+        std::memcpy(merged + size, text, count);
 
-        // Feed the final IME/Unicode result as a complete UTF-8 sequence instead
-        // of one ANSI byte at a time. This avoids the stock textbox path turning
-        // Vietnamese characters into '?' before they reach the chat buffer.
-        for (auto* current = result; *current; ++current)
-        {
-            append_utf8_textbox_wchar(textBox, *current);
-        }
-
-        sync_textbox_utf8_display(textBox);
-        return true;
+        using StringAssign = void*(__thiscall*)(void*, const char*, uint32_t);
+        auto assignString = reinterpret_cast<StringAssign>(0x405670);
+        assignString(textObj, merged, next);
     }
 
     void assign_windows1(Unknown* unknown)
@@ -124,17 +120,11 @@ namespace window
         if (handle_imgui_layer_wnd_proc(hwnd, msg, wParam, lParam, imguiResult))
             return imguiResult;
 
-        // The UTF-8 window upgrade can leave legacy title writes truncated to
-        // "S". Only refresh on low-frequency messages where the title may have
-        // been corrupted — not on every mouse/paint/input message.
+        // Refresh the custom window title on low-frequency messages where the
+        // stock client may have overwritten it with a truncated default.
         if (msg == WM_ACTIVATE || msg == WM_ACTIVATEAPP || msg == WM_SHOWWINDOW
             || msg == WM_DISPLAYCHANGE || msg == WM_SIZE)
             refresh_game_window_title(hwnd, false);
-
-        // Run before the original client WndProc so Unicode chat input never
-        // reaches the legacy single-byte handler.
-        if (inject_unicode_textbox_input(hwnd, msg, wParam, lParam))
-            return 0;
 
         if (msg == kClientRouletteListWindowMessage)
         {
@@ -153,7 +143,7 @@ namespace window
         if (msg == kClientEmojiTokenWindowMessage)
         {
             auto token = reinterpret_cast<const char*>(lParam);
-            append_utf8_textbox_text(&g_var->input.textBox, token);
+            append_textbox_text(&g_var->input.textBox, token);
             return 0;
         }
 
@@ -172,9 +162,6 @@ namespace window
             return 0;
         }
 
-        if (g_hwndIsUnicode)
-            return CallWindowProcW(g_originalGameWndProc, hwnd, msg, wParam, lParam);
-
         return CallWindowProcA(g_originalGameWndProc, hwnd, msg, wParam, lParam);
     }
 
@@ -188,14 +175,14 @@ namespace window
             return;
 
         auto previousProc = reinterpret_cast<WNDPROC>(
-            SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(game_wnd_proc)));
+            SetWindowLongPtrA(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(game_wnd_proc)));
         if (!previousProc)
             return;
 
         g_originalGameWndProc = previousProc;
         g_hookedGameHwnd = hwnd;
-        g_hwndIsUnicode = IsWindowUnicode(hwnd) != FALSE;
 
+        install_window_title_hook();
         refresh_game_window_title(hwnd, true);
     }
 

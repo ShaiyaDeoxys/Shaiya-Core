@@ -132,10 +132,7 @@ namespace packet_pc
     /// </summary>
     int validate_attack_user_packet(CUser* user, GameCharAttackUserIncoming* packet)
     {
-        int result = etain_shield::validate_attack_user(user, packet);
-        if (result)
-            etain_shield::lock_movement_for_attack(user);
-        return result;
+        return etain_shield::validate_attack_user(user, packet);
     }
 
     /// <summary>
@@ -144,10 +141,7 @@ namespace packet_pc
     /// </summary>
     int validate_attack_mob_packet(CUser* user, GameCharAttackMobIncoming* packet)
     {
-        int result = etain_shield::validate_attack_mob(user, packet);
-        if (result)
-            etain_shield::lock_movement_for_attack(user);
-        return result;
+        return etain_shield::validate_attack_mob(user, packet);
     }
 }
 

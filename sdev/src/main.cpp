@@ -27,7 +27,6 @@ void user_hook(CUser* user)
     user->etainLastPos = {};
     user->etainLastMoveTick = 0;
     user->etainViolationCount = 0;
-    user->etainCuttingUntil = 0;
 }
 
 unsigned u0x45516B = 0x45516B;

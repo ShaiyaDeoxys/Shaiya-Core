@@ -210,7 +210,7 @@ namespace
         auto idx = get_element_index(attr);
         if (idx < 0) return nullptr;
 
-        auto* device = g_var ? g_var->device : nullptr;
+        auto* device = g_var ? g_var->camera.device : nullptr;
         if (device)
         {
             scan_sah();

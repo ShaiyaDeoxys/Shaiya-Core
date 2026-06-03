@@ -15,6 +15,9 @@
     <Filter Include="include\shaiya">
       <UniqueIdentifier>{84e1ba66-ddf6-4f25-98e3-89a0bb316e0a}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\include">
+      <UniqueIdentifier>{b3e2f5a1-c4d6-4e8a-9f0b-1a2b3c4d5e6f}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\main.h">
@@ -209,6 +212,36 @@
     <ClInclude Include="include\shaiya\Vehicle.h">
       <Filter>include\shaiya</Filter>
     </ClInclude>
+    <ClInclude Include="include\shaiya\Roulette.h">
+      <Filter>include\shaiya</Filter>
+    </ClInclude>
+    <ClInclude Include="include\shaiya\RewardItemEvent.h">
+      <Filter>include\shaiya</Filter>
+    </ClInclude>
+    <ClInclude Include="include\shaiya\Teleport.h">
+      <Filter>include\shaiya</Filter>
+    </ClInclude>
+    <ClInclude Include="src\include\config.h">
+      <Filter>src\include</Filter>
+    </ClInclude>
+    <ClInclude Include="src\include\custom_chat.h">
+      <Filter>src\include</Filter>
+    </ClInclude>
+    <ClInclude Include="src\include\debug_panel.h">
+      <Filter>src\include</Filter>
+    </ClInclude>
+    <ClInclude Include="src\include\game_data_archive.h">
+      <Filter>src\include</Filter>
+    </ClInclude>
+    <ClInclude Include="src\include\game_addresses.h">
+      <Filter>src\include</Filter>
+    </ClInclude>
+    <ClInclude Include="src\include\imgui_layer_internal.h">
+      <Filter>src\include</Filter>
+    </ClInclude>
+    <ClInclude Include="src\include\interface.h">
+      <Filter>src\include</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\dllmain.cpp">
@@ -271,37 +304,16 @@
     <ClCompile Include="include\shaiya\Static.cpp">
       <Filter>include\shaiya</Filter>
     </ClCompile>
-    <ClCompile Include="src\character.cpp">
-      <Filter>src</Filter>
-    </ClCompile>
     <ClCompile Include="src\command.cpp">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="src\custom_game.cpp">
-      <Filter>src</Filter>
-    </ClCompile>
-    <ClCompile Include="src\equipment.cpp">
-      <Filter>src</Filter>
-    </ClCompile>
-    <ClCompile Include="src\exp_view.cpp">
-      <Filter>src</Filter>
-    </ClCompile>
-    <ClCompile Include="src\input.cpp">
-      <Filter>src</Filter>
-    </ClCompile>
     <ClCompile Include="src\item_icon.cpp">
-      <Filter>src</Filter>
-    </ClCompile>
-    <ClCompile Include="src\main_stats.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="src\imgui_layer_teleport.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="src\name_color.cpp">
-      <Filter>src</Filter>
-    </ClCompile>
-    <ClCompile Include="src\npc_button.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="src\quick_slot.cpp">
@@ -313,31 +325,16 @@
     <ClCompile Include="src\resolutions.cpp">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="src\target_view.cpp">
-      <Filter>src</Filter>
-    </ClCompile>
     <ClCompile Include="src\title.cpp">
-      <Filter>src</Filter>
-    </ClCompile>
-    <ClCompile Include="src\ui_image.cpp">
-      <Filter>src</Filter>
-    </ClCompile>
-    <ClCompile Include="src\unicode.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="src\vehicle.cpp">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="src\weapon_step.cpp">
-      <Filter>src</Filter>
-    </ClCompile>
     <ClCompile Include="src\window.cpp">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="src\camera_limit.cpp">
-      <Filter>src</Filter>
-    </ClCompile>
-    <ClCompile Include="src\blacksmith.cpp">
+    <ClCompile Include="src\interface.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="src\game_data_archive.cpp">
@@ -346,7 +343,37 @@
     <ClCompile Include="src\custom_chat.cpp">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="src\speed_monitor.cpp">
+    <ClCompile Include="src\discord.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\stb_image_impl.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\config.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\imgui_layer.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\imgui_layer_asm.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\imgui_layer_emoji.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\imgui_layer_items.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\imgui_layer_roulette.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\imgui_layer_reward.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\imgui_layer_settings.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\debug_panel.cpp">
       <Filter>src</Filter>
     </ClCompile>
   </ItemGroup>

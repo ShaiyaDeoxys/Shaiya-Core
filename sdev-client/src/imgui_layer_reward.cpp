@@ -85,8 +85,8 @@ namespace imgui_layer
         bool current = rowIndex == currentIndex;
         bool future  = rowIndex > currentIndex;
 
-        constexpr float kIconSize = 26.0f;
-        constexpr float kRowBarH  = 14.0f;
+        constexpr float kIconSize = 22.0f;
+        constexpr float kRowBarH  = 10.0f;
 
         // Dim future rows
         if (future)
@@ -108,11 +108,15 @@ namespace imgui_layer
         if (claimed)
         {
             dl->AddRectFilled(iconMin, iconMax, IM_COL32(30, 80, 30, 140), 2.0f);
-            auto checkSize = ImGui::CalcTextSize("ok");
-            dl->AddText(
-                ImVec2(iconMin.x + (kIconSize - checkSize.x) * 0.5f,
-                       iconMin.y + (kIconSize - checkSize.y) * 0.5f),
-                IM_COL32(140, 230, 140, 255), "ok");
+            auto checkColor = IM_COL32(150, 255, 150, 255);
+            dl->AddLine(
+                ImVec2(iconMin.x + 5.0f, iconMin.y + 12.0f),
+                ImVec2(iconMin.x + 9.0f, iconMin.y + 17.0f),
+                checkColor, 2.0f);
+            dl->AddLine(
+                ImVec2(iconMin.x + 9.0f, iconMin.y + 17.0f),
+                ImVec2(iconMin.x + 17.0f, iconMin.y + 6.0f),
+                checkColor, 2.0f);
         }
 
         // Tooltip on icon hover
@@ -137,17 +141,16 @@ namespace imgui_layer
         ImGui::SameLine();
         ImGui::BeginGroup();
 
-        // Item name (truncated to fit)
         const char* name = (info && info->name) ? info->name : "Reward";
+        auto textAvail = std::max(40.0f, ImGui::GetContentRegionAvail().x);
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + textAvail);
         ImGui::TextUnformatted(name);
+        ImGui::PopTextWrapPos();
 
         // Progress bar
         if (claimed)
         {
-            // Completed: full green bar
-            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.36f, 0.65f, 0.30f, 1.0f));
-            ImGui::ProgressBar(1.0f, ImVec2(-1.0f, kRowBarH), "Claimed");
-            ImGui::PopStyleColor();
+            ImGui::Dummy(ImVec2(-1.0f, kRowBarH));
         }
         else if (current)
         {
@@ -194,30 +197,42 @@ namespace imgui_layer
         if (!g_showRewardBar)
             return;
 
-        constexpr float kRewardBarW = 280.0f;
-        constexpr float kRewardBarH = 260.0f;
+        constexpr float kRewardBarW = 210.0f;
+        constexpr float kRewardBarH = 270.0f;
+        const auto rewardBarSizeFixed = ImVec2(kRewardBarW, kRewardBarH);
 
         auto& io = ImGui::GetIO();
         if (g_rewardBarPosition.x < 0.0f || g_rewardBarPosition.y < 0.0f)
         {
             auto panelPos = ImVec2(g_rewardButtonPosition.x + kRewardButtonSize.x + 4.0f,
-                                   g_rewardButtonPosition.y - 80.0f);
-            g_rewardBarPosition = clamp_window_position(panelPos, ImVec2(kRewardBarW, kRewardBarH), io.DisplaySize);
+                                   g_rewardButtonPosition.y - 90.0f);
+            g_rewardBarPosition = clamp_window_position(panelPos, rewardBarSizeFixed, io.DisplaySize);
             mark_imgui_settings_dirty();
         }
         else
         {
-            g_rewardBarPosition = clamp_window_position(g_rewardBarPosition, ImVec2(kRewardBarW, kRewardBarH), io.DisplaySize);
+            g_rewardBarPosition = clamp_window_position(g_rewardBarPosition, rewardBarSizeFixed, io.DisplaySize);
         }
 
-        ImGui::SetNextWindowSizeConstraints(ImVec2(kRewardBarW, 180.0f), ImVec2(420.0f, 600.0f));
-        ImGui::SetNextWindowSize(ImVec2(kRewardBarW, kRewardBarH), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(rewardBarSizeFixed, ImGuiCond_Always);
         ImGui::SetNextWindowPos(g_rewardBarPosition, ImGuiCond_Appearing);
-        if (!ImGui::Begin("Rewards", nullptr, ImGuiWindowFlags_NoCollapse))
+        ImGui::SetNextWindowBgAlpha(g_windowBgTexture ? 0.0f : 0.94f);
+
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 10.0f));
+        if (!ImGui::Begin(
+            "##reward_panel",
+            nullptr,
+            ImGuiWindowFlags_NoTitleBar
+                | ImGuiWindowFlags_NoResize
+                | ImGuiWindowFlags_NoSavedSettings
+                | ImGuiWindowFlags_NoFocusOnAppearing
+                | ImGuiWindowFlags_NoBringToFrontOnFocus))
         {
             ImGui::End();
+            ImGui::PopStyleVar();
             return;
         }
+        draw_window_background();
 
         auto rewardBarPos = ImGui::GetWindowPos();
         auto rewardBarSize = ImGui::GetWindowSize();
@@ -230,10 +245,17 @@ namespace imgui_layer
             mark_imgui_settings_dirty();
         }
 
+        bool panelOpen = g_showRewardBar;
+        draw_panel_title_with_close("Rewards", panelOpen);
+        if (!panelOpen)
+            g_showRewardBar = false;
+        ImGui::SetCursorPosY(std::max(0.0f, ImGui::GetCursorPosY() - 6.0f));
+
         if (!reward_item_event::hasList || reward_item_event::itemCount == 0)
         {
             ImGui::TextDisabled("Waiting for server rewards...");
             ImGui::End();
+            ImGui::PopStyleVar();
             return;
         }
 
@@ -250,7 +272,7 @@ namespace imgui_layer
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.36f, 0.60f, 0.28f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.44f, 0.72f, 0.34f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.28f, 0.48f, 0.22f, 1.0f));
-            if (ImGui::Button("Claim Reward", ImVec2(-1.0f, 26.0f)))
+            if (ImGui::Button("Claim Reward", ImVec2(-1.0f, 24.0f)))
             {
                 GameRewardItemGetIncoming pkt{};
                 CNetwork::Send(&pkt, sizeof(pkt));
@@ -260,13 +282,15 @@ namespace imgui_layer
         else
         {
             ImGui::BeginDisabled();
-            ImGui::Button("Claim Reward", ImVec2(-1.0f, 26.0f));
+            ImGui::Button("Claim Reward", ImVec2(-1.0f, 24.0f));
             ImGui::EndDisabled();
         }
 
         // Auto-claim row
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(3.0f, 2.0f));
         if (ImGui::Checkbox("Auto-claim", &g_rewardAutoClaimEnabled))
             mark_imgui_settings_dirty();
+        ImGui::PopStyleVar();
 
         if (g_rewardAutoClaimEnabled && reward_item_event::claimReady && g_rewardNextAutoClaimTick != 0)
         {
@@ -283,7 +307,7 @@ namespace imgui_layer
 
         // --- Scrollable reward list ---
         ImGui::BeginChild("##reward_list", ImVec2(0.0f, 0.0f), false);
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 6.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(3.0f, 4.0f));
 
         for (uint32_t i = 0; i < reward_item_event::itemCount && i < 20; ++i)
         {
@@ -304,6 +328,7 @@ namespace imgui_layer
         // Only on first open or when index changes.
 
         ImGui::End();
+        ImGui::PopStyleVar();
     }
 
 

@@ -1,8 +1,114 @@
 #include "include/imgui_layer_internal.h"
+#include <array>
+#include <shaiya/include/common/NpcTypes.h>
+#include <shaiya/include/network/game/incoming/0200.h>
+#include "include/shaiya/CNetwork.h"
 
-void open_remote_npc_shortcut(int index);
+// -- Remote NPC shortcut dispatcher --
+namespace
+{
+    enum class RemoteNpcAction { Vet, Bank, Guild };
+    enum class ShortcutActionType { LegacyNpcId, RemoteNpc };
+    struct RemoteNpcShortcut { ShortcutActionType type; int value; };
+
+    constexpr std::array<RemoteNpcShortcut, 6> kNpcShortcuts{{
+        { ShortcutActionType::LegacyNpcId, 0x65 },
+        { ShortcutActionType::LegacyNpcId, 0x66 },
+        { ShortcutActionType::LegacyNpcId, 0x79 },
+        { ShortcutActionType::RemoteNpc, static_cast<int>(RemoteNpcAction::Vet) },
+        { ShortcutActionType::RemoteNpc, static_cast<int>(RemoteNpcAction::Bank) },
+        { ShortcutActionType::RemoteNpc, static_cast<int>(RemoteNpcAction::Guild) },
+    }};
+
+    void open_remote_npc(RemoteNpcAction action)
+    {
+        using namespace shaiya;
+        if (g_pPlayerData->windowType != WindowType::None)
+        {
+            Static::SysMsgToChatBox(ChatType::Acquire31, 806, 12);
+            return;
+        }
+        switch (action)
+        {
+        case RemoteNpcAction::Vet:
+        {
+            GameStatusResultInfoIncoming pkt{};
+            CNetwork::Send(&pkt, sizeof(pkt));
+            g_var->killLv = 0;
+            g_var->deathLv = 0;
+            g_pPlayerData->npcType = std::to_underlying(NpcType::VetManager);
+            g_pPlayerData->npcTypeId = g_pPlayerData->country == Country::Light ? 1 : 2;
+            g_pPlayerData->npcIcon = 55;
+            g_pPlayerData->textBuffer[0] = '\0';
+            break;
+        }
+        case RemoteNpcAction::Bank:
+            g_pPlayerData->npcType = std::to_underlying(NpcType::Merchant);
+            g_pPlayerData->npcTypeId = g_pPlayerData->country == Country::Light ? 179 : 180;
+            g_pPlayerData->npcIcon = 55;
+            g_pPlayerData->textBuffer[0] = '\0';
+            g_pPlayerData->windowType = WindowType::BankTeller;
+            break;
+        case RemoteNpcAction::Guild:
+            g_pPlayerData->npcType = std::to_underlying(NpcType::GuildMaster);
+            g_pPlayerData->npcTypeId = g_pPlayerData->country == Country::Light ? 1 : 2;
+            g_pPlayerData->npcIcon = 55;
+            g_pPlayerData->textBuffer[0] = '\0';
+            g_pPlayerData->windowType = WindowType::GuildMaster;
+            break;
+        default: break;
+        }
+    }
+}
+
+void open_remote_npc_shortcut(int index)
+{
+    if (index < 0 || index >= static_cast<int>(kNpcShortcuts.size()))
+        return;
+    auto& s = kNpcShortcuts[static_cast<std::size_t>(index)];
+    if (s.type == ShortcutActionType::LegacyNpcId)
+    {
+        *reinterpret_cast<int*>(0x91AD44) = 0x1;
+        *reinterpret_cast<int*>(0x91AD40) = 0x12C;
+        *reinterpret_cast<int*>(0x9144F0) = -1;
+        *reinterpret_cast<int*>(0x22AB7B8) = 0x0;
+        *reinterpret_cast<int*>(0x9144E4) = s.value;
+    }
+    else
+        open_remote_npc(static_cast<RemoteNpcAction>(s.value));
+}
 
 namespace imgui_layer {
+
+    // -- Panel helpers --
+    void draw_window_background()
+    {
+        auto* tex = g_windowBgTexture;
+        if (!tex) return;
+        auto pos = ImGui::GetWindowPos();
+        auto size = ImGui::GetWindowSize();
+        ImGui::GetWindowDrawList()->AddImage(
+            reinterpret_cast<ImTextureID>(tex), pos,
+            ImVec2(pos.x + size.x, pos.y + size.y),
+            ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f),
+            IM_COL32(255, 255, 255, 255));
+    }
+
+    void draw_panel_title_with_close(const char* title, bool& open)
+    {
+        constexpr auto kH = 22.0f;
+        auto* dl = ImGui::GetWindowDrawList();
+        auto start = ImGui::GetCursorScreenPos();
+        auto w = ImGui::GetContentRegionAvail().x;
+        auto ts = ImGui::CalcTextSize(title);
+        dl->AddText(ImVec2(start.x + (w - ts.x) * 0.5f, start.y + (kH - ts.y) * 0.5f),
+                    IM_COL32(235, 238, 244, 255), title);
+        ImGui::SetCursorScreenPos(ImVec2(start.x + w - 22.0f, start.y + 1.0f));
+        ImGui::PushID(title);
+        if (ImGui::Button("X", ImVec2(20.0f, 20.0f))) open = false;
+        ImGui::PopID();
+        ImGui::SetCursorScreenPos(ImVec2(start.x, start.y + kH + 12.0f));
+    }
 
     const char* get_imgui_ini_path()
     {
@@ -233,18 +339,19 @@ namespace imgui_layer {
 
         ImGui::SetNextWindowPos(g_settingsPanelPosition, ImGuiCond_Appearing);
         ImGui::SetNextWindowSize(kSettingsPanelSize, ImGuiCond_Always);
-        ImGui::SetNextWindowBgAlpha(0.94f);
+        ImGui::SetNextWindowBgAlpha(g_windowBgTexture ? 0.0f : 0.94f);
 
-        bool panelOpen = g_showSettingsPanel;
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 14.0f));
         if (ImGui::Begin(
-            "Quick Settings",
-            &panelOpen,
-            ImGuiWindowFlags_NoCollapse
+            "##settings_panel",
+            nullptr,
+            ImGuiWindowFlags_NoTitleBar
                 | ImGuiWindowFlags_NoResize
                 | ImGuiWindowFlags_NoSavedSettings
                 | ImGuiWindowFlags_NoFocusOnAppearing
                 | ImGuiWindowFlags_NoBringToFrontOnFocus))
         {
+            draw_window_background();
             auto pos = ImGui::GetWindowPos();
             auto size = ImGui::GetWindowSize();
             remember_rect(g_settingsPanelRect, pos, ImVec2(pos.x + size.x, pos.y + size.y));
@@ -254,6 +361,11 @@ namespace imgui_layer {
                 g_settingsPanelPosition = pos;
                 mark_imgui_settings_dirty();
             }
+
+            bool panelOpen = g_showSettingsPanel;
+            draw_panel_title_with_close("Quick Settings", panelOpen);
+            if (!panelOpen)
+                g_showSettingsPanel = false;
 
             ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f, 6.0f));
             draw_settings_toggle_row("Wings", g_showWings != 0, "/wings on", "/wings off");
@@ -266,8 +378,7 @@ namespace imgui_layer {
             ImGui::PopStyleVar();
         }
         ImGui::End();
-
-        g_showSettingsPanel = panelOpen;
+        ImGui::PopStyleVar();
     }
 
     void draw_settings_button_overlay()
@@ -397,18 +508,19 @@ namespace imgui_layer {
 
         ImGui::SetNextWindowPos(g_npcPanelPosition, ImGuiCond_Appearing);
         ImGui::SetNextWindowSize(kNpcPanelSize, ImGuiCond_Always);
-        ImGui::SetNextWindowBgAlpha(0.94f);
+        ImGui::SetNextWindowBgAlpha(g_windowBgTexture ? 0.0f : 0.94f);
 
-        bool panelOpen = g_showNpcPanel;
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 14.0f));
         if (ImGui::Begin(
-            "Remote NPC",
-            &panelOpen,
-            ImGuiWindowFlags_NoCollapse
+            "##npc_panel",
+            nullptr,
+            ImGuiWindowFlags_NoTitleBar
                 | ImGuiWindowFlags_NoResize
                 | ImGuiWindowFlags_NoSavedSettings
                 | ImGuiWindowFlags_NoFocusOnAppearing
                 | ImGuiWindowFlags_NoBringToFrontOnFocus))
         {
+            draw_window_background();
             auto pos = ImGui::GetWindowPos();
             auto size = ImGui::GetWindowSize();
             remember_rect(g_npcPanelRect, pos, ImVec2(pos.x + size.x, pos.y + size.y));
@@ -418,6 +530,11 @@ namespace imgui_layer {
                 g_npcPanelPosition = pos;
                 mark_imgui_settings_dirty();
             }
+
+            bool panelOpen = g_showNpcPanel;
+            draw_panel_title_with_close("Remote NPC", panelOpen);
+            if (!panelOpen)
+                g_showNpcPanel = false;
 
             ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f, 7.0f));
             draw_npc_panel_button("Market", 0);
@@ -429,8 +546,7 @@ namespace imgui_layer {
             ImGui::PopStyleVar();
         }
         ImGui::End();
-
-        g_showNpcPanel = panelOpen;
+        ImGui::PopStyleVar();
     }
 
     void draw_npc_button_overlay()

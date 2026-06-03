@@ -96,8 +96,7 @@ if (Configuration::RouletteEnabled)
 Server-side anticheat module configured via `Data/EtainShield.ini`. Each protection has an independent enable/disable toggle and tunable parameters. A global master switch disables all protections at once.
 
 - **AntiSpeedHack**: patches four native timing constants and validates every `0x501` movement packet using calibrated speed ceilings measured server-side (12.5 units/s on foot, 13.5 mounted). Mounted state is detected via `CUser::vehicleStatus`. Consecutive violations are forgiven up to the configured threshold to absorb latency spikes; repeated violations trigger a position correction. Reliably detects speed hacks at 1.1x and above.
-- **AntiRangeHack**: computes the real 2D euclidean distance from server-side positions for every attack. Basic attack packets (`0x502`/`0x503`) are intercepted in the opcode dispatch; skill attacks are caught by detours on the native PVE (`0x458000`) and PVP (`0x457F50`) range-check functions. Out-of-range attacks are rejected immediately.
-- **AntiCutting**: freezes player movement for a configurable duration (default 500 ms) after each attack. Every `0x501` movement packet received during the lock window is silently dropped — the server simply does not update the player's position. The lock renews on each subsequent attack in a chain. Configurable skill-ID skip-list exempts dash-type skills from the lock.
+- **AntiRangeHack**: computes the real 2D euclidean distance from server-side positions for every attack. Basic attack packets (`0x502`/`0x503`) are intercepted in the opcode dispatch; skill attacks are caught by detours on the native PVE (`0x458000`) and PVP (`0x457F50`) range-check functions. Range checks use a static margin with no movement indulgence. Out-of-range attacks are rejected immediately.
 
 ### Cross-Faction And Social
 
@@ -275,12 +274,6 @@ ViolationLimit=5
 [AntiRangeHack]
 Enabled=1
 Margin=4
-MovingGrace=5
-
-[AntiCutting]
-Enabled=1
-LockMs=500
-SkipSkillIds=56
 ```
 
 ### ServerConfig.ini

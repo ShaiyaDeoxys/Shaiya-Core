@@ -4,10 +4,12 @@
 #include <string>
 #include <cstdint>
 #include <cstdlib>
+#include <cstdio>
 #include "include/main.h"
 #include "include/config.h"
 #include "include/game_data_archive.h"
 #include "include/imgui_layer_internal.h"
+#include "include/shaiya/CPlayerData.h"
 
 namespace config
 {
@@ -25,37 +27,6 @@ namespace
         auto& iniPath = config::ini_path();
         return GetPrivateProfileIntA("ADVANCED", "SKIPUPDATER", 0, iniPath.c_str()) != 0;
     }
-
-    bool load_skip_server_selection_setting()
-    {
-        auto& iniPath = config::ini_path();
-        return GetPrivateProfileIntA("ADVANCED", "SKIPSERVERSELECTION", 1, iniPath.c_str()) != 0;
-    }
-
-    bool load_skip_mode_selection_setting()
-    {
-        auto& iniPath = config::ini_path();
-        return GetPrivateProfileIntA("ADVANCED", "SKIPMODESELECTION", 1, iniPath.c_str()) != 0;
-    }
-
-    bool load_imgui_overlay_setting()
-    {
-        auto& iniPath = config::ini_path();
-        return GetPrivateProfileIntA("ADVANCED", "IMGUIOVERLAY", 1, iniPath.c_str()) != 0;
-    }
-
-    bool load_custom_chat_setting()
-    {
-        auto& iniPath = config::ini_path();
-        return GetPrivateProfileIntA("ADVANCED", "CUSTOMCHAT", 1, iniPath.c_str()) != 0;
-    }
-
-    bool load_emojis_enabled_setting()
-    {
-        auto& iniPath = config::ini_path();
-        return GetPrivateProfileIntA("ADVANCED", "EMOJIS", 1, iniPath.c_str()) != 0;
-    }
-
 
     using GetCommandLineAProc = LPSTR(WINAPI*)();
     GetCommandLineAProc g_originalGetCommandLineA = nullptr;
@@ -127,32 +98,6 @@ void __declspec(naked) naked_0x4E6D76()
 
 namespace config
 {
-    bool load_imgui_overlay()
-    {
-        return load_imgui_overlay_setting();
-    }
-
-    bool load_custom_chat()
-    {
-        return load_custom_chat_setting();
-    }
-
-    bool load_emojis_enabled()
-    {
-        return load_emojis_enabled_setting();
-    }
-
-
-    bool load_skip_server_selection()
-    {
-        return load_skip_server_selection_setting();
-    }
-
-    bool load_skip_mode_selection()
-    {
-        return load_skip_mode_selection_setting();
-    }
-
     void install_skip_updater()
     {
         patch_get_command_line_for_skip_updater();
@@ -161,5 +106,71 @@ namespace config
     void install_id_view()
     {
         util::detour((void*)0x4E5876, naked_0x4E6D76, 5);
+    }
+
+    static UiMode g_uiMode = UiMode::EP4;
+    static bool g_uiModeLoaded = false;
+
+    UiMode ui_mode()
+    {
+        if (!g_uiModeLoaded)
+        {
+            g_uiModeLoaded = true;
+            char buf[16]{};
+            GetPrivateProfileStringA("ADVANCED", "UI", "EP4",
+                buf, sizeof(buf), ini_path().c_str());
+
+            if (_stricmp(buf, "EP6") == 0)
+                g_uiMode = UiMode::EP6;
+            else if (_stricmp(buf, "EP7") == 0)
+                g_uiMode = UiMode::EP7;
+            else
+                g_uiMode = UiMode::EP4;
+        }
+        return g_uiMode;
+    }
+
+    const char* ui_interface_path()
+    {
+        switch (ui_mode())
+        {
+        case UiMode::EP6: return "data/Intf_epi6";
+        case UiMode::EP7: return "data/Intf_epi7";
+        default:          return "data/interface";
+        }
+    }
+
+    bool ui_needs_layout_patches()
+    {
+        return ui_mode() == UiMode::EP4;
+    }
+
+    static char g_windowTitleBase[128] = "Shaiya";
+    static bool g_windowTitleBaseLoaded = false;
+
+    static const char* window_title_base()
+    {
+        if (!g_windowTitleBaseLoaded)
+        {
+            g_windowTitleBaseLoaded = true;
+            GetPrivateProfileStringA("ADVANCED", "WINDOWTITLE", "Shaiya",
+                g_windowTitleBase, sizeof(g_windowTitleBase), ini_path().c_str());
+        }
+        return g_windowTitleBase;
+    }
+
+    void build_window_title(char* output, int outputSize)
+    {
+        if (!output || outputSize <= 0)
+            return;
+
+        const auto* base = window_title_base();
+        auto* playerData = reinterpret_cast<shaiya::CPlayerData*>(0x90D1D0);
+
+        if (playerData->charId != 0 && playerData->charName[0] != '\0')
+            _snprintf_s(output, outputSize, _TRUNCATE, "%s - Playing as %s",
+                base, playerData->charName.data());
+        else
+            strncpy_s(output, outputSize, base, _TRUNCATE);
     }
 }

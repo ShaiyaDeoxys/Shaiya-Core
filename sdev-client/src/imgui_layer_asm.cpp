@@ -2,7 +2,6 @@
 #include "include/imgui_layer_internal.h"
 #include "include/main.h"
 #include "include/shaiya/CNetwork.h"
-#include "include/config.h"
 #include "include/custom_chat.h"
 
 unsigned u0x422B96 = 0x422B96;
@@ -242,9 +241,6 @@ void tick_client_welcome_sysmsg()
 
 void hook::imgui_layer()
 {
-    if (!config::load_imgui_overlay())
-        return;
-
     // Capture main_map CWindow pos/size every frame for ImGui button anchoring.
     util::detour((void*)0x4DE6AA, naked_capture_main_map_anchor, 6);
 
@@ -252,7 +248,6 @@ void hook::imgui_layer()
     // so the custom chat can follow native resize and placement.
     util::detour((void*)0x47D1F0, naked_capture_chat_panel, 6);
 
-    imgui_layer::g_emojisEnabled = config::load_emojis_enabled();
     imgui_layer::install_chat_emoji_hook();
     util::detour((void*)0x422630, naked_chatbox_add_line_filter, 6);
 

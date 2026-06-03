@@ -15,7 +15,7 @@ The Core Discord community grew from the original ShaiyaGG Discord and focuses o
 - Shaiya Core provides a preconfigured and stable database, server-side files, SQL installers, tools, and client bundle.
 - A detailed video guide for basic installation is available in the Discord group's `Guides` section.
 - Core is highly declarative and configurable. Many features are controlled through `.ini` files instead of hardcoded binary edits.
-- For example, you can skip the updater or configure the game IP through `CONFIG.INI`, and you can change the server level cap by editing a value in `ServerConfig.ini`.
+- For example, you can skip stock startup screens through `CONFIG.INI`, and you can change the server level cap by editing a value in `ServerConfig.ini`.
 - You keep control over the project. There are no direct manual assembly edits applied to released files; behavior is defined through source code, hooks, and configuration.
 - Features can be disabled, adjusted, or extended in code, and many runtime options can be changed through configuration.
 - The project does not assume advanced technical knowledge from the final user. It can be used by someone starting from zero, especially with the community guides and support.
@@ -25,7 +25,7 @@ The Core Discord community grew from the original ShaiyaGG Discord and focuses o
 ## Repository Layout
 
 - `sdev/` - game-service/server hooks, packet handlers, configuration loaders, and gameplay fixes.
-- `sdev-client/` - `Game.exe` hooks, ImGui support, Unicode/chat fixes, UI patches, and client quality-of-life features.
+- `sdev-client/` - `Game.exe` hooks, ImGui overlay, UI patches, and client quality-of-life features.
 - `sdev-login/` - login-service hooks.
 - `sdev-db/` - database-agent hooks.
 - `shaiya/` - shared game structures, enums, and packet definitions.
@@ -62,7 +62,6 @@ Client module:
 Runtime behavior is controlled through external files such as `CONFIG.INI`, server-side `.ini` files, PNG interface assets, and feature-specific configuration files. Keep production secrets and server-specific private data out of commits.
 
 - The updater is skipped by default for testing. Change `SKIPUPDATER` in `CONFIG.INI` to restore updater-required behavior.
-- Server selection and mode selection can be skipped through `CONFIG.INI` if desired.
 - Cosmetic and visual features can be toggled through commands such as `/wings off`, `/pets off`, `/costumes off`, `/titles off`, `/colour off`, and `/effects off`.
 - FPS boost can also be controlled manually with `/fpsboost on` and `/fpsboost off`.
 - Level cap and enchant cap are configured server-side through `ServerConfig.ini`.
