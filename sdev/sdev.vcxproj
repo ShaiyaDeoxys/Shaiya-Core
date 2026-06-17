@@ -72,7 +72,6 @@
     <ClInclude Include="include\shaiya\Attack.h" />
     <ClInclude Include="include\shaiya\AttackAdd.h" />
     <ClInclude Include="include\shaiya\AttackMob.h" />
-    <ClInclude Include="include\shaiya\BattlefieldMoveInfo.h" />
     <ClInclude Include="include\shaiya\BillingItemInfo.h" />
     <ClInclude Include="include\shaiya\BlockInfo.h" />
     <ClInclude Include="include\shaiya\CBitArray.h" />
@@ -202,6 +201,7 @@
     <ClInclude Include="include\shaiya\Synergy.h" />
     <ClInclude Include="include\shaiya\ItemSynthesis.h" />
     <ClInclude Include="include\shaiya\Target.h" />
+    <ClInclude Include="include\shaiya\Teleport.h" />
     <ClInclude Include="include\shaiya\TypeValue.h" />
     <ClInclude Include="include\shaiya\UserHelper.h" />
     <ClInclude Include="include\shaiya\UserInfo.h" />

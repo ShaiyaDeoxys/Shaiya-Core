@@ -34,7 +34,6 @@ namespace hook
     void patch();
     void quick_slot();
     void raid();
-    void resolutions();
     void select_screen();
     void title();
     void vehicle();

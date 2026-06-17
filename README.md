@@ -10,6 +10,10 @@ https://discord.gg/ZUSuWQsRMB
 
 The Core Discord community grew from the original ShaiyaGG Discord and focuses on open development, knowledge sharing, and building a healthy, stable community over time.
 
+## Release Status
+
+**Shaiya Core v1.0 — Stable.** This is the first stable release and is considered production-ready and suitable for public use on live Shaiya private servers. All server services (`sdev`, `sdev-login`, `sdev-db`) and the client (`sdev-client`) build cleanly and have been verified as a complete bundle. Future work continues through the same versioned releases.
+
 ## The Basics
 
 - Shaiya Core provides a preconfigured and stable database, server-side files, SQL installers, tools, and client bundle.

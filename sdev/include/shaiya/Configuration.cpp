@@ -13,7 +13,6 @@
 #include <util/ini/ini.h>
 #include <shaiya/include/network/game/RewardItemUnit.h>
 #include "include/extensions/filesystem.hpp"
-#include "BattlefieldMoveInfo.h"
 #include "CGameData.h"
 #include "Configuration.h"
 #include "ItemInfo.h"
@@ -22,6 +21,7 @@
 #include "Roulette.h"
 #include "SBinaryReader.h"
 #include "Synergy.h"
+#include "Teleport.h"
 #include <include/etain_shield_config.h>
 using namespace shaiya;
 
@@ -158,65 +158,6 @@ void Configuration::LoadServerConfig()
         auto levelCapValue = static_cast<uint8_t>(DefaultLevelCap);
         for (auto address : LevelCapAddresses)
             util::write_memory(reinterpret_cast<void*>(address), &levelCapValue, sizeof(levelCapValue));
-    }
-}
-
-void Configuration::LoadBattlefieldMoveData()
-{
-    g_battlefieldMoveData.clear();
-
-    try
-    {
-        std::filesystem::path path(m_root);
-        ext::filesystem::combine(path, "Data", "BattleFieldMoveInfo.ini");
-
-        if (!std::filesystem::exists(path))
-            return;
-
-        auto count = static_cast<int>(util::ini::get_value(L"BATTLEFIELD_INFO", L"BATTLEFIELD_COUNT", 0, path));
-        if (count <= 0)
-            return;
-
-        g_battlefieldMoveData.reserve(count);
-
-        for (int num = 1; num <= count; ++num)
-        {
-            auto section = std::format(L"BATTLEFIELD_{}", num);
-            auto mapId = static_cast<int>(util::ini::get_value(section.c_str(), L"MAP_NO", -1, path));
-            if (mapId < 0)
-                continue;
-
-            BattlefieldMoveInfo info{};
-            info.levelMin = static_cast<int>(util::ini::get_value(section.c_str(), L"LEVEL_MIN", 0, path));
-            info.levelMax = static_cast<int>(util::ini::get_value(section.c_str(), L"LEVEL_MAX", 0, path));
-
-            auto readPos = [&](int index, const wchar_t* prefix)
-            {
-                auto keyX = std::format(L"{}_POSX", prefix);
-                auto keyY = std::format(L"{}_POSY", prefix);
-                auto keyZ = std::format(L"{}_POSZ", prefix);
-
-                auto x = util::ini::get_value(section.c_str(), keyX.c_str(), L"", path);
-                auto y = util::ini::get_value(section.c_str(), keyY.c_str(), L"", path);
-                auto z = util::ini::get_value(section.c_str(), keyZ.c_str(), L"", path);
-
-                info.mapPos[index].mapId = mapId;
-                info.mapPos[index].x = std::stof(x);
-                info.mapPos[index].y = std::stof(y);
-                info.mapPos[index].z = std::stof(z);
-            };
-
-            readPos(0, L"HU");
-            readPos(1, L"EL");
-            readPos(2, L"DE");
-            readPos(3, L"VI");
-
-            g_battlefieldMoveData.push_back(info);
-        }
-    }
-    catch (...)
-    {
-        g_battlefieldMoveData.clear();
     }
 }
 

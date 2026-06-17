@@ -24,7 +24,13 @@
     <ClCompile Include="src\dllmain.cpp">
       <Filter>src</Filter>
     </ClCompile>
+    <ClCompile Include="src\etain_shield.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
     <ClCompile Include="src\main.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\utilities.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="src\packet_shop.cpp">
@@ -164,6 +170,9 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="include\etain_shield.h">
+      <Filter>include</Filter>
+    </ClInclude>
     <ClInclude Include="include\main.h">
       <Filter>include</Filter>
     </ClInclude>
@@ -186,9 +195,6 @@
       <Filter>include\shaiya</Filter>
     </ClInclude>
     <ClInclude Include="include\shaiya\AttackMob.h">
-      <Filter>include\shaiya</Filter>
-    </ClInclude>
-    <ClInclude Include="include\shaiya\BattlefieldMoveInfo.h">
       <Filter>include\shaiya</Filter>
     </ClInclude>
     <ClInclude Include="include\shaiya\BillingItemInfo.h">
@@ -564,6 +570,9 @@
       <Filter>include\shaiya</Filter>
     </ClInclude>
     <ClInclude Include="include\shaiya\Target.h">
+      <Filter>include\shaiya</Filter>
+    </ClInclude>
+    <ClInclude Include="include\shaiya\Teleport.h">
       <Filter>include\shaiya</Filter>
     </ClInclude>
     <ClInclude Include="include\shaiya\TypeValue.h">

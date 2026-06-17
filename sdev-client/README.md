@@ -83,6 +83,8 @@ REWARD_AUTOCLAIM=FALSE
 - `/titles on` and `/titles off` toggle visual item titles at runtime.
 - `/colour on` and `/colour off` toggle visual colored names at runtime.
 - `/color on` and `/color off` are accepted aliases for `/colour`.
+- `/mute <PlayerName>` permanently blocks all messages from that player in the Core chat.
+- `/unmute <PlayerName>` removes a player from the mute list.
 
 ## Client Features
 
@@ -100,7 +102,6 @@ This section is the client-side feature map. Every entry is installed from `Main
 
 - **Updater bypass**: `ADVANCED/SKIPUPDATER=1` injects the same command-line token normally provided by `Updater.exe`, allowing direct `Game.exe` launch without changing the normal startup state machine.
 - **Login splash skip**: removes the Nexon/copyright splash and shortens the startup waits while preserving required login resource initialization.
-- **LoginVersion selector** (GM debug panel, F9 → LoginVer tab): changes the runtime `LoginVersion` global at `0x7AB0D4` to any supported region. Documented versions: 0 Default, 1 Korea, 2 Japan, 3 Vietnam UTF-8, 4 Philippines, 5 China, 6 Thailand, 7 Russia, 8 Germany, 9 Taiwan, 10 Brazil, 11 Hong Kong, 12 Turkey, 13 Portugal, 14 France, 15 Spain, 16 Italy, 17 Vietnam Telex. Only version 3 enables UTF-8 multibyte renderer/measurement; versions 2/5/8/9 use DBCS; version 17 forces wide-char handler + restricted keyboard.
 - **Client UI dispatch**: subclasses the game window so ImGui helpers can safely post roulette requests and chat-token inserts back through the game UI thread.
 - **Welcome message**: posts the existing `SysMsg` welcome entry after the client UI is ready. The message text remains owned by the normal `sysmsg.txt` data.
 - **Visual chat tokens**: draws an ImGui emoji button anchored to the native lower chat controls during gameplay, so it follows resolution changes and native chat resizing. The picker opens relative to that button, scans `emojiN.png` entries from `Assets/Emojis` and `gifN.gif` entries from `Assets/Gifs` in `data.sah/saf`, then inserts plain chat tokens such as `:emoji1:` or `:gif2:` into the stock textbox through the game UI thread. The picker exposes ON/OFF toggles for emojis and GIFs. GIF picker entries use lightweight static previews with a bounded resident cache, while full animation is loaded only when a GIF is rendered in chat/floating text. Packets and server handling remain plain text.
@@ -169,21 +170,21 @@ This section is the client-side feature map. Every entry is installed from `Main
 - **Logout/game-over timer**: aligns the visible logout countdown with the shortened server logout delay of 2000ms.
 - **Experience view fix**: prevents the client from displaying experience values multiplied by ten and ignores locale-specific EXP multiplication where applicable.
 
-### Resolution And Graphics
+### Graphics
 
-- Adds `1366x768`, `1400x900`, `2560x1080`, `2560x1440`, `3840x1080`, `3840x2160`, and `3440x1440`.
-- Expands option-screen resolution rendering, selection, saving, and apply behavior.
-- Reuses stock large-layout positioning branches so UI placement remains stable at wider resolutions.
-- Caches gamma/distance/float option values to prevent the expanded resolution table from corrupting option sliders.
 - Applies camera limit from the global `g_cameraLimit` value.
 - Applies costume, pet, wing, and dungeon shadow/lag workarounds used by the current visual setup.
+
+> The custom-resolution table feature has been removed from the client. Its
+> design and runtime addresses are preserved in [`docs/resolutions.md`](docs/resolutions.md)
+> in case it needs to be reintroduced.
 
 ### Discord And ImGui Overlay
 
 - Discord RPC initializes with the static application id/message defined in `src/discord.cpp`.
 - The roulette panel is opened from `RouletteIcon.png`. It is visible to all players, requests the server reward list, displays real item names/icons from the configured server rewards, and sends the server roulette roll packet. Hovering a reward on the wheel shows the item name and description tooltip.
 - The settings button opens a compact `Quick Settings` panel for visual toggles such as wings, pets, costumes, titles, colours, FPS boost, and effects. The button and panel positions persist in `CONFIG.INI`.
-- `F9` toggles the minimal GM debug panel (requires `IsAdmin`). It keeps the ID View toggle and the `Chat options` controls for custom chat wrap/color tuning.
+- `F9` toggles the GM debug panel (requires `IsAdmin`). It exposes tabs for `ID View`, `Speed Monitor`, `Chat options` (custom chat wrap/color tuning), `Mounts`, `Effects`, and `Scene`.
 - The Core chat replacement is always enabled. It hides stock chat text, records the same incoming chat stream, and renders upper/lower messages at the native CChat coordinates so resolution changes, native vertical resize, and native scroll state remain aligned.
 - The welcome system message is a lifecycle behavior rather than a user-controlled panel feature.
 - The emoji/GIF picker is an in-world chat helper, not a panel module.

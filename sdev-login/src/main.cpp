@@ -27,15 +27,14 @@ short hook_0x406A8C(SDatabase* db, char* username, char* password, unsigned lowP
     if (SDatabase::PrepareSql(db, buffer.data()))
         return -1;
 
-    short result = 0;
-    result = SDatabase::BindParameter(db, 1, 32, SQL_C_CHAR, SQL_VARCHAR, username, nullptr, SQL_PARAM_INPUT);
-    result = SDatabase::BindParameter(db, 2, 32, SQL_C_CHAR, SQL_VARCHAR, password, nullptr, SQL_PARAM_INPUT);
-
-    if (result)
+    // Check each bind independently: previously the first BindParameter's
+    // result was overwritten by the second, swallowing a param-1 failure.
+    if (SDatabase::BindParameter(db, 1, 32, SQL_C_CHAR, SQL_VARCHAR, username, nullptr, SQL_PARAM_INPUT))
+        return -1;
+    if (SDatabase::BindParameter(db, 2, 32, SQL_C_CHAR, SQL_VARCHAR, password, nullptr, SQL_PARAM_INPUT))
         return -1;
 
-    result = SDatabase::ExecuteSql(db);
-    return result;
+    return SDatabase::ExecuteSql(db);
 }
 
 unsigned u0x406B24 = 0x406B24;

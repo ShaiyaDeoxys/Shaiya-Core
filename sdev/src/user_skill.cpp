@@ -87,7 +87,7 @@ namespace user_skill
         GameCharSkillUseOutgoing_EP6 outgoing{};
         outgoing.senderId = user->id;
         outgoing.targetId = user->id;
-        outgoing.skillId = user->skillAbility70.skillId;;
+        outgoing.skillId = user->skillAbility70.skillId;
         outgoing.skillLv = user->skillAbility70.skillLv;
         outgoing.statusType = GameCharSkillUseStatusType::Stopped;
         NetworkHelper::Send(user, &outgoing, sizeof(GameCharSkillUseOutgoing_EP6));
@@ -110,7 +110,7 @@ namespace user_skill
         GameCharSkillUseOutgoing_EP6 outgoing{};
         outgoing.senderId = user->id;
         outgoing.targetId = user->id;
-        outgoing.skillId = user->skillAbility70.skillId;;
+        outgoing.skillId = user->skillAbility70.skillId;
         outgoing.skillLv = user->skillAbility70.skillLv;
         outgoing.statusType = GameCharSkillUseStatusType::Stopped;
         NetworkHelper::Send(user, &outgoing, sizeof(GameCharSkillUseOutgoing_EP6));

@@ -29,7 +29,6 @@ All active server features are installed from `src/main.cpp`.
 ```cpp
 Configuration::Init();
 Configuration::LoadServerConfig();
-Configuration::LoadBattlefieldMoveData();
 Configuration::LoadTeleportDestinations();
 Configuration::LoadEtainShield();
 hook::etain_shield();
@@ -38,7 +37,6 @@ hook::utilities();
 hook::packet_character();
 hook::packet_exchange();
 hook::packet_gem();
-hook::packet_main_interface();
 hook::packet_market();
 hook::packet_myshop();
 hook::packet_party();
@@ -193,7 +191,6 @@ Server-side anticheat module configured via `Data/EtainShield.ini`. Each protect
 - `0x407` and `0x1F00`: tracks reward item event progress and sends reward availability/result packets.
 - `0x834` and `0x835`: sends roulette configuration and handles roulette spins.
 - `0x838` and `0x839`: sends configured remote-teleport destinations and handles movement requests.
-- `0x233`: handles battleground movement requests from the client.
 - `0x55A`: handles town move scroll requests with gate validation.
 - `0x230B`: converts personal shop item lists to EP6.4 units.
 - `0x1C01`: maps the EP6.4 vehicle market type around unsupported stock market categories.
@@ -204,7 +201,7 @@ Server-side anticheat module configured via `Data/EtainShield.ini`. Each protect
 
 - Packet `0x838` sends the configured destination list to the client.
 - Packet `0x839` validates the selected destination, level range, faction coordinates, current map, death state, and busy state.
-- Valid movement requests reuse the same 5 second cast/update path as town move scrolls and battleground movement.
+- Valid movement requests reuse the same 5 second cast/update path as town move scrolls.
 - The request does not consume an item; saved item-use bag, slot, and index are cleared before scheduling movement.
 - MyShop is ended and current actions are cancelled before the cast starts.
 
@@ -362,7 +359,6 @@ NewItemCount=1
 ## Client Compatibility
 
 - `sdev-client` provides the ImGui roulette module that sends packets `0x834` and `0x835`.
-- `sdev-client` provides the battleground button that sends packet `0x233`.
 - `sdev-client` provides the remote teleport UI that sends packets `0x838` and `0x839`.
 - `sdev-client` provides the five-page raid UI for the server raid-150 patch.
 - `sdev-client` accepts recreation rune effects `220..240` in the blacksmith window; `sdev` applies the server mutation.

@@ -38,7 +38,6 @@ namespace debug_panel
             kModuleMountUtility,
             kModuleEffectPlayer,
             kModuleSceneDetector,
-            kModuleLoginVersion,
             kModuleCount
         };
 
@@ -82,8 +81,6 @@ namespace debug_panel
                 return "Effects";
             case kModuleSceneDetector:
                 return "Scene";
-            case kModuleLoginVersion:
-                return "LoginVer";
             default:
                 return "";
             }
@@ -238,100 +235,6 @@ namespace debug_panel
             ImGui::BulletText("4 = Character creation");
             ImGui::BulletText("5 = Loading screen");
             ImGui::BulletText("6 = In-game");
-        }
-
-        // --- Login Version ---
-
-        constexpr uintptr_t kLoginVersionAddr = 0x7AB0D4;
-
-        struct LoginVersionEntry
-        {
-            int version;
-            const char* label;
-        };
-
-        constexpr LoginVersionEntry kLoginVersions[] = {
-            {  0, "Default" },
-            {  1, "Korea" },
-            {  2, "Japan" },
-            {  3, "Vietnam" },
-            {  4, "Philippines" },
-            {  5, "China" },
-            {  6, "Thailand" },
-            {  7, "Russia" },
-            {  8, "Germany" },
-            {  9, "Taiwan" },
-            { 10, "Brazil" },
-            { 11, "Hong Kong" },
-            { 12, "Turkey" },
-            { 13, "Portugal" },
-            { 14, "France" },
-            { 15, "Spain" },
-            { 16, "Italy" },
-            { 17, "Vietnam Telex" },
-        };
-        constexpr int kLoginVersionCount = static_cast<int>(std::size(kLoginVersions));
-
-        const char* login_version_label(int version)
-        {
-            for (auto& entry : kLoginVersions)
-                if (entry.version == version)
-                    return entry.label;
-            return "Unknown";
-        }
-
-        void render_login_version()
-        {
-            auto* ptr = reinterpret_cast<int*>(kLoginVersionAddr);
-            int current = *ptr;
-
-            ImGui::TextDisabled("Runtime LoginVersion at 0x7AB0D4.");
-            ImGui::TextDisabled("Controls text rendering, keyboard handling, and codepage.");
-            ImGui::Spacing();
-
-            ImGui::Text("Current: %d  —  %s", current, login_version_label(current));
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::Spacing();
-
-            if (ImGui::BeginTable("##lv_table", 3,
-                    ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg
-                        | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp,
-                    ImVec2(0.0f, 0.0f)))
-            {
-                ImGui::TableSetupScrollFreeze(0, 1);
-                ImGui::TableSetupColumn("Ver", ImGuiTableColumnFlags_WidthFixed, 32.0f);
-                ImGui::TableSetupColumn("Region", ImGuiTableColumnFlags_WidthStretch);
-                ImGui::TableSetupColumn("##set", ImGuiTableColumnFlags_WidthFixed, 40.0f);
-                ImGui::TableHeadersRow();
-
-                for (int i = 0; i < kLoginVersionCount; ++i)
-                {
-                    auto& entry = kLoginVersions[i];
-                    ImGui::PushID(i);
-                    ImGui::TableNextRow();
-
-                    ImGui::TableNextColumn();
-                    bool isActive = (entry.version == current);
-                    if (isActive)
-                        ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1,
-                            ImGui::GetColorU32(ImGuiCol_HeaderActive));
-                    ImGui::Text("%d", entry.version);
-
-                    ImGui::TableNextColumn();
-                    ImGui::TextUnformatted(entry.label);
-
-                    ImGui::TableNextColumn();
-                    if (isActive)
-                        ImGui::TextDisabled("active");
-                    else if (ImGui::SmallButton("Set"))
-                        *ptr = entry.version;
-
-                    ImGui::PopID();
-                }
-
-                ImGui::EndTable();
-            }
         }
 
         // --- Mount Utility ---
@@ -636,9 +539,6 @@ namespace debug_panel
             break;
         case kModuleSceneDetector:
             render_scene_detector();
-            break;
-        case kModuleLoginVersion:
-            render_login_version();
             break;
         }
 

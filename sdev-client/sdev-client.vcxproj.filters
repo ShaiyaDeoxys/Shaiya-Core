@@ -322,9 +322,6 @@
     <ClCompile Include="src\raid.cpp">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="src\resolutions.cpp">
-      <Filter>src</Filter>
-    </ClCompile>
     <ClCompile Include="src\title.cpp">
       <Filter>src</Filter>
     </ClCompile>

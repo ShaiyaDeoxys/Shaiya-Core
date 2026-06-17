@@ -92,7 +92,6 @@ void Main()
 {
     Configuration::Init();
     Configuration::LoadServerConfig();
-    Configuration::LoadBattlefieldMoveData();
     Configuration::LoadTeleportDestinations();
     Configuration::LoadEtainShield();
 
@@ -113,7 +112,6 @@ void Main()
     hook::packet_character();
     hook::packet_exchange();
     hook::packet_gem();
-    hook::packet_main_interface();
     hook::packet_market();
     hook::packet_myshop();
     hook::packet_party();

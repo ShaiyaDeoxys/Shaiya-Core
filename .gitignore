@@ -28,6 +28,10 @@ packages/
 .tools/
 .claude/
 
+# Local reverse-engineering artifacts (not part of the release)
+tools/
+ghidra_projects/
+
 # Local logs and temporary files
 *.log
 *.tmp

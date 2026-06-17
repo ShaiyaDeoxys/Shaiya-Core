@@ -95,7 +95,7 @@ namespace custom_chat
         constexpr float kNativeLowerFirstLineYOffset = 0x5e;   // lower panel first-line offset from baseY
         constexpr int kNativeUpperExtraLines = 2;              // min visible lines when upper is maximized
         constexpr int kNativeLowerExtraLines = 4;              // min visible lines when lower is maximized
-        constexpr int kDefaultNativeUpperCharsPerLine = 56;    // default wrap width (upper, combat)
+        constexpr int kDefaultNativeUpperCharsPerLine = 54;    // default wrap width (upper, combat)
         constexpr int kDefaultNativeLowerCharsPerLine = 47;    // default wrap width (lower, chat)
         constexpr int kNativeMaxLinesPerMsg = 3;               // max wrapped lines per message
         constexpr float kNativeParallelFontSize = 15.0f;       // ImGui font size matching native

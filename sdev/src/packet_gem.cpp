@@ -341,12 +341,6 @@ namespace packet_gem
             return;
         }
 
-        //if (item->makeType == MakeType::QuestResult)
-        //{
-        //    NetworkHelper::Send(user, &failure, sizeof(GameItemComposeOutgoing));
-        //    return;
-        //}
-
         auto composeUniqueId = rune->uniqueId;
         auto composeItemId = rune->info->itemId;
         auto oldCraftName = item->craftName;
