@@ -16,7 +16,7 @@ The server resolves paths from the game service executable directory, then the `
 
 - `Data/ServerConfig.ini`: global limits such as enchant cap and level cap.
 - `Data/Teleport.ini`: named remote-teleport destinations, level gates, and faction-specific coordinates.
-- `Data/SetItem.SData`: decrypted server-side item set synergy data.
+- `Data/SetItem.ini`: item set synergy bonuses, keyed by set number (the item `Drop` field).
 - `Data/ChaoticSquare.ini`: item synthesis and chaotic square recipes.
 - `Data/RewardItem.ini`: timed reward item event list.
 - `Data/Roulette.ini`: roulette token and reward table.
@@ -77,7 +77,7 @@ if (Configuration::RouletteEnabled)
 - `RewardBar` defaults to `1`. When `0`, the reward item event system is disabled.
 - `Roulette` defaults to `1`. When `0`, the roulette system is disabled.
 - `Teleport.ini` maps named remote-teleport destinations with optional level gates and separate Light/Fury coordinates.
-- `SetItem.SData` loads decrypted set bonuses and refreshes server-side synergy tables.
+- `SetItem.ini` loads set bonuses (`SetItem_Max`/`Effect_Max` plus per-set effect sections) and refreshes server-side synergy tables.
 - `ChaoticSquare.ini` loads item synthesis recipes and chaotic-square result tables.
 - `RewardItem.ini` loads the timed account reward list.
 - `Roulette.ini` loads the roulette token and up to twenty rewards, then normalizes chance values to a 10000-point table.
@@ -243,10 +243,10 @@ Server-side anticheat module configured via `Data/EtainShield.ini`. Each protect
 
 ### Item Set Synergy
 
-- Loads decrypted server `SetItem.SData`.
-- Tracks equipped item ids per character.
-- Applies synergy bonuses for strength, dexterity, intelligence, wisdom, reaction, luck, health, mana, stamina, melee attack, ranged attack, and magic attack.
-- Removes stale synergy bonuses when equipment changes or the user leaves the world.
+- Loads set bonuses from `Data/SetItem.ini`.
+- Determines set membership from the item `Drop` field: an item belongs to set `N` when its `Drop` value is `N`. The applied bonus tier scales with how many pieces of the set are equipped.
+- Applies synergy bonuses for strength, dexterity, reaction, intelligence, wisdom, luck, health, mana, stamina, melee/ranged/magic attack, and melee/ranged/magic defense.
+- Recalculates synergies whenever equipment changes, re-applies them after a stat or skill reset, and clears synergy state when the user leaves the world.
 
 ### Bosses, Obelisks, And World Thread
 

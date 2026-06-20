@@ -19,7 +19,6 @@
 #include "ItemSynthesis.h"
 #include "RewardItem.h"
 #include "Roulette.h"
-#include "SBinaryReader.h"
 #include "Synergy.h"
 #include "Teleport.h"
 #include <include/etain_shield_config.h>
@@ -234,50 +233,83 @@ void Configuration::LoadItemSetData()
     try
     {
         std::filesystem::path path(m_root);
-        ext::filesystem::combine(path, "Data", "SetItem.SData");
+        ext::filesystem::combine(path, "Data", "SetItem.ini");
 
         if (!std::filesystem::exists(path))
             return;
 
-        SBinaryReader reader(path);
+        // Set membership is driven by the ItemInfo "Drop" field: every item
+        // whose drop value equals the set number belongs to that set.
+        auto mainString = util::ini::get_value(L"SetItem_String", L"MainString", L"", path);
+        auto subString = util::ini::get_value(L"SetItem_String", L"SubString", L"", path);
+        if (mainString.empty() || subString.empty())
+            return;
 
-        auto itemSetCount = reader.readUInt32();
-        for (size_t i = 0; i < itemSetCount; ++i)
+        auto itemSetMax = static_cast<int>(util::ini::get_value(L"SetItem_Max", L"SetItem_Max", 0, path));
+        itemSetMax = std::clamp(itemSetMax, 0, 200);
+        if (itemSetMax <= 0)
+            return;
+
+        auto effectMax = static_cast<int>(util::ini::get_value(L"SetItem_Max", L"Effect_Max", 0, path));
+        effectMax = std::clamp(effectMax, 0, 13);
+        if (effectMax <= 0)
+            return;
+
+        g_itemSets.reserve(itemSetMax);
+
+        for (int num = 1; num < itemSetMax + 1; ++num)
         {
             ItemSet itemSet{};
-            itemSet.id = reader.readUInt16();
+            itemSet.id = num;
 
-            // Discard the name
-            auto length = reader.readUInt32();
-            reader.ignore(length);
-
-            for (auto&& itemId : itemSet.items)
+            for (int i = 0; i < effectMax; ++i)
             {
-                auto type = reader.readUInt16();
-                auto typeId = reader.readUInt16();
+                auto section = std::format(L"{}_{}_{}_{}", mainString, num, subString, i + 1);
+                auto sec = section.c_str();
 
-                auto value = (type * 1000) + typeId;
-                if (value >= ItemId_MIN && value <= ItemId_MAX)
-                    itemId = value;
-            }
+                auto hp = static_cast<int>(util::ini::get_value(sec, L"HP", 0, path));
+                auto mp = static_cast<int>(util::ini::get_value(sec, L"MP", 0, path));
+                auto sp = static_cast<int>(util::ini::get_value(sec, L"SP", 0, path));
 
-            for (auto&& synergy : itemSet.synergies)
-            {
-                // e.g., 70,50,0,0,0,20,0,0,0,0,0,0
-                auto effects = reader.readString();
-                auto rng = std::views::split(effects, ',');
-                auto vec = std::ranges::to<std::vector<std::string>>(rng);
-                if (vec.size() != synergy.effects.size())
-                    continue;
+                auto str = static_cast<int>(util::ini::get_value(sec, L"STR", 0, path));
+                auto dex = static_cast<int>(util::ini::get_value(sec, L"DEX", 0, path));
+                auto rec = static_cast<int>(util::ini::get_value(sec, L"REC", 0, path));
+                auto intl = static_cast<int>(util::ini::get_value(sec, L"INT", 0, path));
+                auto wis = static_cast<int>(util::ini::get_value(sec, L"WIS", 0, path));
+                auto luc = static_cast<int>(util::ini::get_value(sec, L"LUC", 0, path));
 
-                for (size_t i = 0; i < synergy.effects.size(); ++i)
-                    synergy.effects[i] = std::stoi(vec[i]);
+                auto atkFL = static_cast<int>(util::ini::get_value(sec, L"AtkFL", 0, path));
+                auto atkSH = static_cast<int>(util::ini::get_value(sec, L"AtkSH", 0, path));
+                auto atkMG = static_cast<int>(util::ini::get_value(sec, L"AtkMG", 0, path));
+
+                auto defFL = static_cast<int>(util::ini::get_value(sec, L"DefFL", 0, path));
+                auto defSH = static_cast<int>(util::ini::get_value(sec, L"DefSH", 0, path));
+                auto defMG = static_cast<int>(util::ini::get_value(sec, L"DefMG", 0, path));
+
+                auto& effects = itemSet.synergies[i].effects;
+                // STR, DEX, REC, INT, WIS, LUC
+                effects[0] = str;
+                effects[1] = dex;
+                effects[2] = rec;
+                effects[3] = intl;
+                effects[4] = wis;
+                effects[5] = luc;
+                // HP, MP, SP
+                effects[6] = hp;
+                effects[7] = mp;
+                effects[8] = sp;
+                // Attack (melee, ranged, magic)
+                effects[9] = atkFL;
+                effects[10] = atkSH;
+                effects[11] = atkMG;
+                // Defense (melee, ranged, magic)
+                effects[12] = defFL;
+                effects[13] = defSH;
+                effects[14] = defMG;
             }
 
             g_itemSets.push_back(itemSet);
         }
-
-        reader.close();
     }
     catch (...)
     {
