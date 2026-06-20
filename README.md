@@ -12,7 +12,15 @@ The Core Discord community grew from the original ShaiyaGG Discord and focuses o
 
 ## Release Status
 
-**Shaiya Core v1.0 — Stable.** This is the first stable release and is considered production-ready and suitable for public use on live Shaiya private servers. All server services (`sdev`, `sdev-login`, `sdev-db`) and the client (`sdev-client`) build cleanly and have been verified as a complete bundle. Future work continues through the same versioned releases.
+**Shaiya Core v1.1 - Stable.** This release is considered production-ready and suitable for public use on live Shaiya private servers. It keeps the v1.0 stable base and updates the server-side item set synergy system.
+
+## Release Notes
+
+### v1.1
+
+- Fixes item set synergy handling in the server code.
+- Loads set bonuses from `Data/SetItem.ini` and resolves set membership through the item `Drop` field.
+- Recalculates, reapplies, and clears synergy bonuses more reliably when equipment changes, users reset stats or skills, or users leave the world.
 
 ## The Basics
 

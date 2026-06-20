@@ -596,6 +596,9 @@
     <ClInclude Include="include\extensions\filesystem.hpp">
       <Filter>include\extensions</Filter>
     </ClInclude>
+    <ClInclude Include="include\extensions\functional.hpp">
+      <Filter>include\extensions</Filter>
+    </ClInclude>
     <ClInclude Include="include\shaiya\ItemPredicate.h">
       <Filter>include\shaiya</Filter>
     </ClInclude>

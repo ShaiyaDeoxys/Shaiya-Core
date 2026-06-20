@@ -1,10 +1,10 @@
 #pragma once
 #include <shaiya/include/common/ItemEffect.h>
+#include "CItem.h"
+#include "ItemInfo.h"
 
 namespace shaiya
 {
-    struct CItem;
-
     struct ItemCountGreaterEqualF
     {
         ItemCountGreaterEqualF(int type, int typeId, int count)
@@ -39,5 +39,25 @@ namespace shaiya
     private:
 
         ItemEffect m_effect;
+    };
+
+    struct ItemSetEqualToF
+    {
+        explicit ItemSetEqualToF(int id)
+            : m_id(id)
+        {
+        }
+
+        bool operator()(const CItem* item) const
+        {
+            if (!item)
+                return false;
+
+            return item->info->drop == m_id;
+        }
+
+    private:
+
+        int m_id;
     };
 }

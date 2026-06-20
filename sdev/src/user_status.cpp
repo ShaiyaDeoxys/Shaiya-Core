@@ -93,6 +93,38 @@ void __declspec(naked) naked_0x461005()
     }
 }
 
+/// <summary>
+/// Recalculates item set synergies after the user's equipment changes.
+/// The previously applied bonuses are subtracted, the worn sets are
+/// re-evaluated, and the resulting bonuses are applied and tracked.
+/// </summary>
+static void synergy_equipment_change(CUser* user)
+{
+    auto it = g_itemSetSynergies.find(user->id);
+    if (it != g_itemSetSynergies.end())
+        Synergy::subSynergies(user, it->second);
+
+    std::vector<ItemSetSynergy> synergies;
+    Synergy::getSynergies(user, synergies);
+
+    Synergy::addSynergies(user, synergies);
+    g_itemSetSynergies[user->id] = synergies;
+}
+
+/// <summary>
+/// Removes the tracked synergies before a stat or skill reset re-initializes
+/// the user's equipment. InitEquipment re-applies the bonuses afterwards.
+/// </summary>
+static void synergy_reset(CUser* user)
+{
+    auto it = g_itemSetSynergies.find(user->id);
+    if (it == g_itemSetSynergies.end())
+        return;
+
+    Synergy::subSynergies(user, it->second);
+    g_itemSetSynergies.erase(it);
+}
+
 unsigned u0x461675 = 0x461675;
 void __declspec(naked) naked_0x46166E()
 {
@@ -101,7 +133,7 @@ void __declspec(naked) naked_0x46166E()
         pushad
 
         push edi // user
-        call Synergy::equipmentAdd
+        call synergy_equipment_change
         add esp,0x4
 
         popad
@@ -119,10 +151,9 @@ void __declspec(naked) naked_0x461D43()
     {
         pushad
 
-        push ecx // slot
         push edi // user
-        call Synergy::equipmentRemove
-        add esp,0x8
+        call synergy_equipment_change
+        add esp,0x4
 
         popad
 
@@ -142,7 +173,7 @@ void __declspec(naked) naked_0x48F9BE()
         pushad
 
         push edi // user
-        call Synergy::removeSynergies
+        call synergy_reset
         add esp,0x4
 
         popad
@@ -163,7 +194,7 @@ void __declspec(naked) naked_0x48FCD3()
         pushad
 
         push esi // user
-        call Synergy::removeSynergies
+        call synergy_reset
         add esp,0x4
 
         popad

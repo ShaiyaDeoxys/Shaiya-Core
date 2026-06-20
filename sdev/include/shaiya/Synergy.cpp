@@ -1,73 +1,20 @@
 #include <algorithm>
 #include <map>
-#include <ranges>
-#include <set>
 #include <vector>
+#include "include/extensions/functional.hpp"
 #include "CItem.h"
 #include "CUser.h"
+#include "ItemInfo.h"
+#include "ItemPredicate.h"
 #include "Synergy.h"
 using namespace shaiya;
 
-void Synergy::equipmentAdd(CUser* user)
+void Synergy::subSynergies(CUser* user, const std::vector<ItemSetSynergy>& synergies)
 {
-    Synergy::removeSynergies(user);
-
-    std::set<ItemId> equipment;
-    Synergy::getWornEquipment(user, equipment);
-
-    if (equipment.empty())
-        return;
-
-    std::vector<ItemSetSynergy> synergies;
-    Synergy::getWornSynergies(equipment, synergies);
-
-    if (synergies.empty())
-        return;
-
-    Synergy::applySynergies(user, synergies);
-}
-
-void Synergy::equipmentRemove(CUser* user, int slot)
-{
-    Synergy::removeSynergies(user);
-
-    std::set<ItemId> equipment;
-    for (const auto& [_, item] : std::views::enumerate(
-        std::as_const(user->inventory[0])))
-    {
-        if (!item)
-            continue;
-
-        if (_ == slot)
-            continue;
-
-        auto itemId = (item->type * 1000) + item->typeId;
-        equipment.insert(itemId);
-    }
-
-    if (equipment.empty())
-        return;
-
-    std::vector<ItemSetSynergy> synergies;
-    Synergy::getWornSynergies(equipment, synergies);
-
-    if (synergies.empty())
-        return;
-
-    Synergy::applySynergies(user, synergies);
-}
-
-void Synergy::removeSynergies(CUser* user)
-{
-    auto it = g_itemSetSynergies.find(user->id);
-    if (it == g_itemSetSynergies.end())
-        return;
-
     auto maxHealth = user->maxHealth;
     auto maxMana = user->maxMana;
     auto maxStamina = user->maxStamina;
 
-    auto& synergies = it->second;
     for (const auto& synergy : synergies)
     {
         auto strength = synergy.effects[0];
@@ -82,6 +29,9 @@ void Synergy::removeSynergies(CUser* user)
         auto attackPower = synergy.effects[9];
         auto rangedAttackPower = synergy.effects[10];
         auto magicPower = synergy.effects[11];
+        auto defense = synergy.effects[12];
+        auto rangedDefense = synergy.effects[13];
+        auto magicDefense = synergy.effects[14];
 
         user->abilityStrength -= strength;
         user->abilityDexterity -= dexterity;
@@ -95,6 +45,9 @@ void Synergy::removeSynergies(CUser* user)
         user->attackAdd.power -= attackPower;
         user->attackAddRanged.power -= rangedAttackPower;
         user->attackAddMagic.power -= magicPower;
+        user->attack.defense -= defense;
+        user->attackRanged.defense -= rangedDefense;
+        user->attackMagic.defense -= magicDefense;
 
         if (reaction)
             user->maxHealth -= reaction * 5;
@@ -117,15 +70,10 @@ void Synergy::removeSynergies(CUser* user)
         if (maxStamina != user->maxStamina)
             CUser::SendMaxSP(user);
     }
-
-    g_itemSetSynergies.erase(user->id);
 }
 
-void Synergy::applySynergies(CUser* user, const std::vector<ItemSetSynergy>& synergies)
+void Synergy::addSynergies(CUser* user, const std::vector<ItemSetSynergy>& synergies)
 {
-    if (g_itemSetSynergies.count(user->id))
-        Synergy::removeSynergies(user);
-
     auto maxHealth = user->maxHealth;
     auto maxMana = user->maxMana;
     auto maxStamina = user->maxStamina;
@@ -144,6 +92,9 @@ void Synergy::applySynergies(CUser* user, const std::vector<ItemSetSynergy>& syn
         auto attackPower = synergy.effects[9];
         auto rangedAttackPower = synergy.effects[10];
         auto magicPower = synergy.effects[11];
+        auto defense = synergy.effects[12];
+        auto rangedDefense = synergy.effects[13];
+        auto magicDefense = synergy.effects[14];
 
         user->abilityStrength += strength;
         user->abilityDexterity += dexterity;
@@ -157,6 +108,9 @@ void Synergy::applySynergies(CUser* user, const std::vector<ItemSetSynergy>& syn
         user->attackAdd.power += attackPower;
         user->attackAddRanged.power += rangedAttackPower;
         user->attackAddMagic.power += magicPower;
+        user->attack.defense += defense;
+        user->attackRanged.defense += rangedDefense;
+        user->attackMagic.defense += magicDefense;
 
         if (reaction)
             user->maxHealth += reaction * 5;
@@ -179,48 +133,25 @@ void Synergy::applySynergies(CUser* user, const std::vector<ItemSetSynergy>& syn
         if (maxStamina != user->maxStamina)
             CUser::SendMaxSP(user);
     }
-
-    g_itemSetSynergies.insert({ user->id, synergies });
 }
 
-void Synergy::getWornEquipment(CUser* user, std::set<ItemId>& equipment)
+void Synergy::getSynergies(CUser* user, std::vector<ItemSetSynergy>& synergies)
 {
-    for (const auto& item : user->inventory[0])
-    {
-        if (!item)
-            continue;
-
-        auto itemId = (item->type * 1000) + item->typeId;
-        equipment.insert(itemId);
-    }
-}
-
-void Synergy::getWornSynergies(const std::set<ItemId>& equipment, std::vector<ItemSetSynergy>& synergies)
-{
-    if (equipment.empty())
-        return;
-
     for (const auto& itemSet : g_itemSets)
     {
-        size_t wornCount = 0;
-        for (const auto& itemId : itemSet.items)
-        {
-            if (equipment.contains(itemId))
-                ++wornCount;
-        }
+        auto& equipment = user->inventory[0];
+        auto count = std::count_if(equipment.cbegin(), equipment.cend(), ItemSetEqualToF(itemSet.id));
 
-        size_t size = itemSet.synergies.size();
-        if (!wornCount || wornCount > size)
+        auto maxCount = std::ssize(itemSet.synergies);
+        if (!count || count > maxCount)
             continue;
 
-        auto offset = size - wornCount;
+        auto offset = maxCount - count;
         auto first = itemSet.synergies.crbegin() + offset;
         auto last = itemSet.synergies.crend();
 
-        auto it = std::find_if(first, last, [](const auto& synergy) {
-            return !std::all_of(synergy.effects.cbegin(), synergy.effects.cend(), [](const auto& effect) {
-                return !effect;
-                });
+        auto it = std::find_if_not(first, last, [](const auto& synergy) {
+            return std::all_of(synergy.effects.cbegin(), synergy.effects.cend(), ext::unary_equal_to(0));
             });
 
         if (it == last)
