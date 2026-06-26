@@ -12,9 +12,16 @@ The Core Discord community grew from the original ShaiyaGG Discord and focuses o
 
 ## Release Status
 
-**Shaiya Core v1.1 - Stable.** This release is considered production-ready and suitable for public use on live Shaiya private servers. It keeps the v1.0 stable base and updates the server-side item set synergy system.
+**Shaiya Core v1.3 - Stable.** This release is considered production-ready and suitable for public use on live Shaiya private servers. It builds on the v1.1 stable base and adds the client-side Core chat overlay (native-font rendering, emoji/GIF tokens, moderation) along with UI quality-of-life improvements.
 
 ## Release Notes
+
+### v1.3
+
+- Core chat overlay renders messages with the game's own native chat font at the native chat coordinates, so it matches native chat exactly and shows the game's text codepage correctly (including non-ASCII characters).
+- Inline emoji/GIF chat tokens (`:emojiN:`/`:gifN:`) drawn over chat text, with an in-world picker and per-type ON/OFF toggles.
+- Chat moderation pipeline: text sanitization, per-player mute, rate limiting, and duplicate-message collapsing.
+- Client UI quality-of-life: Quick Settings, reward, roulette, teleport, and NPC shortcut panels.
 
 ### v1.1
 

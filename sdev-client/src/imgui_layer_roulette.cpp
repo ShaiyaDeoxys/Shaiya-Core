@@ -347,43 +347,8 @@ namespace imgui_layer {
         remember_rect(g_rouletteButtonRect, min, max);
 
         auto hovered = ImGui::IsItemHovered() || is_cursor_in_rect(g_rouletteButtonRect);
-        auto mouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Left);
-        auto mouseReleased = ImGui::IsMouseReleased(ImGuiMouseButton_Left);
-
         if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-        {
-            g_draggingRouletteButton = true;
-            g_draggedRouletteButton = false;
-            g_rouletteButtonDragOffset = ImVec2(
-                io.MousePos.x - g_rouletteButtonPosition.x,
-                io.MousePos.y - g_rouletteButtonPosition.y);
-        }
-
-        if (g_draggingRouletteButton && mouseDown)
-        {
-            auto newPos = ImVec2(
-                io.MousePos.x - g_rouletteButtonDragOffset.x,
-                io.MousePos.y - g_rouletteButtonDragOffset.y);
-            auto clamped = clamp_window_position(newPos, buttonSize, io.DisplaySize);
-            if (std::fabs(clamped.x - g_rouletteButtonPosition.x) > 1.0f
-                || std::fabs(clamped.y - g_rouletteButtonPosition.y) > 1.0f)
-            {
-                g_draggedRouletteButton = true;
-                g_rouletteButtonPosition = clamped;
-            }
-        }
-
-        if (mouseReleased && g_draggingRouletteButton)
-        {
-            if (g_draggedRouletteButton)
-                mark_imgui_settings_dirty();
-            else if (hovered)
-                g_showPanel = !g_showPanel;
-
-            g_draggingRouletteButton = false;
-            g_draggedRouletteButton = false;
-            release_imgui_capture();
-        }
+            g_showPanel = !g_showPanel;
 
         auto drawList = ImGui::GetWindowDrawList();
         auto* texture = load_roulette_icon_texture();

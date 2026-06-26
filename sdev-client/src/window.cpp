@@ -7,6 +7,7 @@
 #include <shaiya/include/network/game/outgoing/0800.h>
 #include "include/main.h"
 #include "include/config.h"
+#include "include/custom_chat.h"
 #include "include/shaiya/CNetwork.h"
 #include "include/shaiya/CQuickSlot.h"
 #include "include/shaiya/Static.h"

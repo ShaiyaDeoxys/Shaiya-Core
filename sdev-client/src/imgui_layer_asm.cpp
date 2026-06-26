@@ -158,6 +158,9 @@ void __declspec(naked) naked_static_text_create()
 }
 
 unsigned u0x57CA20 = 0x57CA20;
+// Set from record_floating_static_text_render's return across popad (the game
+// draws floating text on a single thread, so a file-scope byte is safe).
+unsigned char g_suppressFloatingTextDraw = 0;
 void __declspec(naked) naked_floating_static_text_draw()
 {
     __asm
@@ -171,9 +174,16 @@ void __declspec(naked) naked_floating_static_text_draw()
         push eax
         call imgui_layer::record_floating_static_text_render
         add esp, 0x0C
+        mov g_suppressFloatingTextDraw, al
         popad
 
+        // If this is one of our chat bubbles, skip the native (mojibake) draw.
+        // CStaticText::Draw is __stdcall with 5 args -> RET 0x14 balances it.
+        cmp g_suppressFloatingTextDraw, 0
+        jnz suppressed
         jmp u0x57CA20
+    suppressed:
+        ret 0x14
     }
 }
 

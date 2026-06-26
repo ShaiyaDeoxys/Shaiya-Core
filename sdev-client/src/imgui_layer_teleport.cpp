@@ -192,49 +192,12 @@ namespace imgui_layer {
         remember_rect(g_teleportButtonRect, min, max);
 
         auto hovered = ImGui::IsItemHovered() || is_cursor_in_rect(g_teleportButtonRect);
-        auto mouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Left);
-        auto mouseReleased = ImGui::IsMouseReleased(ImGuiMouseButton_Left);
-
         if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
         {
-            g_draggingTeleportButton = true;
-            g_draggedTeleportButton = false;
-            g_teleportButtonDragOffset = ImVec2(
-                io.MousePos.x - g_teleportButtonPosition.x,
-                io.MousePos.y - g_teleportButtonPosition.y);
-        }
-
-        if (g_draggingTeleportButton && mouseDown)
-        {
-            auto newPos = ImVec2(
-                io.MousePos.x - g_teleportButtonDragOffset.x,
-                io.MousePos.y - g_teleportButtonDragOffset.y);
-            auto clamped = clamp_window_position(newPos, buttonSize, io.DisplaySize);
-            if (std::fabs(clamped.x - g_teleportButtonPosition.x) > 1.0f
-                || std::fabs(clamped.y - g_teleportButtonPosition.y) > 1.0f)
-            {
-                g_draggedTeleportButton = true;
-                g_teleportButtonPosition = clamped;
-            }
-        }
-
-        if (mouseReleased && g_draggingTeleportButton)
-        {
-            if (g_draggedTeleportButton)
-            {
-                mark_imgui_settings_dirty();
-            }
-            else if (hovered)
-            {
-                g_showTeleportPanel = !g_showTeleportPanel;
-                // Request fresh destination list when opening the panel
-                if (g_showTeleportPanel)
-                    request_teleport_list();
-            }
-
-            g_draggingTeleportButton = false;
-            g_draggedTeleportButton = false;
-            release_imgui_capture();
+            g_showTeleportPanel = !g_showTeleportPanel;
+            // Request fresh destination list when opening the panel
+            if (g_showTeleportPanel)
+                request_teleport_list();
         }
 
         auto drawList = ImGui::GetWindowDrawList();

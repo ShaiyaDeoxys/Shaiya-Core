@@ -363,43 +363,8 @@ namespace imgui_layer
 
         auto now = GetTickCount();
         auto hovered = ImGui::IsItemHovered() || is_cursor_in_rect(g_rewardButtonRect);
-        auto mouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Left);
-        auto mouseReleased = ImGui::IsMouseReleased(ImGuiMouseButton_Left);
-
         if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-        {
-            g_draggingRewardButton = true;
-            g_draggedRewardButton = false;
-            g_rewardButtonDragOffset = ImVec2(
-                io.MousePos.x - g_rewardButtonPosition.x,
-                io.MousePos.y - g_rewardButtonPosition.y);
-        }
-
-        if (g_draggingRewardButton && mouseDown)
-        {
-            auto newPos = ImVec2(
-                io.MousePos.x - g_rewardButtonDragOffset.x,
-                io.MousePos.y - g_rewardButtonDragOffset.y);
-            auto clamped = clamp_window_position(newPos, buttonSize, io.DisplaySize);
-            if (std::fabs(clamped.x - g_rewardButtonPosition.x) > 1.0f
-                || std::fabs(clamped.y - g_rewardButtonPosition.y) > 1.0f)
-            {
-                g_draggedRewardButton = true;
-                g_rewardButtonPosition = clamped;
-            }
-        }
-
-        if (mouseReleased && g_draggingRewardButton)
-        {
-            if (g_draggedRewardButton)
-                mark_imgui_settings_dirty();
-            else if (hovered)
-                g_showRewardBar = !g_showRewardBar;
-
-            g_draggingRewardButton = false;
-            g_draggedRewardButton = false;
-            release_imgui_capture();
-        }
+            g_showRewardBar = !g_showRewardBar;
 
         auto drawList = ImGui::GetWindowDrawList();
         auto* texture = load_reward_icon_texture();
