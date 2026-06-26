@@ -1,5 +1,6 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <imm.h>
 
 #include <algorithm>
 #include <cctype>
@@ -15,7 +16,10 @@
 #include <external/imgui/imgui.h>
 #include "include/config.h"
 #include "include/custom_chat.h"
+#include "include/game_addresses.h"
 #include "include/imgui_layer_internal.h"
+
+#pragma comment(lib, "imm32.lib")
 
 // ===========================================================================
 // custom_chat.cpp — Parallel chat overlay with multi-layer security
@@ -78,10 +82,12 @@ namespace custom_chat
         };
 
         // A single wrapped display line (output of append_wrapped_lines).
+        // 256 bytes: a max-width (120-column) line of 3-byte CJK glyphs can run
+        // ~240 bytes, so the buffer must hold it without a mid-character clamp.
         struct NativeChatLine
         {
             int chatType = 0;
-            char text[128]{};
+            char text[256]{};
         };
 
         // --- Ring buffer ---
@@ -110,22 +116,6 @@ namespace custom_chat
         ImVec4 g_color[100]{};
         int g_upperCharsPerLine = kDefaultNativeUpperCharsPerLine;
         int g_lowerCharsPerLine = kDefaultNativeLowerCharsPerLine;
-
-        // --- D3DX deferred text rendering ---
-        // Text runs are collected during render_ingame_chat() and flushed
-        // after ImGui_ImplDX9_RenderDrawData() via flush_d3dx_text().
-        // This uses the game's own ID3DXFont objects for pixel-perfect
-        // native text appearance (GDI rasterizer, not stb_truetype).
-        struct D3DXTextRun
-        {
-            float x, y;
-            D3DCOLOR color;
-            char text[256];
-        };
-
-        constexpr int kMaxD3DXTextRuns = 2048;
-        D3DXTextRun g_d3dxRuns[kMaxD3DXTextRuns]{};
-        int g_d3dxRunCount = 0;
 
         // ===================================================================
         // 2. Security layer 1: Blacklist / mute list (CONFIG.ini [MUTE])
@@ -402,7 +392,7 @@ namespace custom_chat
         // Returns the name lowercased, or empty string if no valid name found.
         // Only used by is_spoofed_system_msg() — NOT for mute/rate-limit
         // (those use the full text as key to avoid dependence on format).
-        std::string extract_sender_name(const char* text)
+        std::string extract_sender_name(const char* text, bool lower = true)
         {
             if (!text || !text[0])
                 return {};
@@ -447,7 +437,8 @@ namespace custom_chat
             if (!validName)
                 return {};
 
-            return to_lower(std::string(p, colon));
+            std::string name(p, colon);
+            return lower ? to_lower(name) : name;
         }
 
         // Core sanitization function — processes raw message text and writes
@@ -687,29 +678,6 @@ namespace custom_chat
 
         ImFont* get_parallel_font()
         {
-            if (g_parallelFontLoaded)
-                return g_parallelFont;
-
-            g_parallelFontLoaded = true;
-
-            char windowsDir[MAX_PATH]{};
-            if (!GetWindowsDirectoryA(windowsDir, MAX_PATH))
-                return nullptr;
-
-            std::string path(windowsDir);
-            if (!path.empty() && path.back() != '\\')
-                path += "\\";
-            path += "Fonts\\arial.ttf";
-
-            if (GetFileAttributesA(path.c_str()) == INVALID_FILE_ATTRIBUTES)
-                return nullptr;
-
-            auto& io = ImGui::GetIO();
-            ImFontConfig cfg{};
-            cfg.FontDataOwnedByAtlas = true;
-            std::snprintf(cfg.Name, sizeof(cfg.Name), "Arial##ParallelChat");
-            g_parallelFont = io.Fonts->AddFontFromFileTTF(
-                path.c_str(), 14.0f, &cfg, io.Fonts->GetGlyphRangesDefault());
             return g_parallelFont;
         }
 
@@ -771,6 +739,159 @@ namespace custom_chat
                 ++g_count;
         }
 
+        // ===================================================================
+        // Security layer 8: Per-sender flood guard (public channels, anti-bot)
+        // ===================================================================
+        //
+        // The rate-limit/duplicate layers key on message TEXT, so they only
+        // catch a player repeating the SAME line.  This layer catches a single
+        // sender flooding the public channels with DIFFERENT messages.
+        //
+        // Public channels only (Normal 34/41, Trade 38, Shout 39, Area 49) —
+        // group channels (party/whisper/guild) are exempt by design, and the
+        // local player is never throttled against themselves.
+        //
+        // Detection: a sliding window — more than kFloodThreshold messages in
+        // kFloodWindowMs is one "offense".  Penalties escalate per offense so a
+        // bot cannot just spam in waves between fixed cooldowns:
+        //   1st offense -> 15 s silence,  2nd -> 1 min,  3rd -> 5 min,
+        //   4th -> permanent auto-mute (added to the persistent CONFIG.ini
+        //   blacklist, after which the normal mute layer drops everything).
+        // Escalation decays: if a sender goes kFloodOffenseDecayMs without a
+        // new offense, the counter resets, so an occasional fast-typing human
+        // never climbs the ladder — only sustained bot behavior does.
+        // Suppression is silent (no feedback to the spammer); only the
+        // permanent auto-mute emits one notice so the user knows why.
+
+        constexpr DWORD kFloodWindowMs = 5000;            // sliding window
+        constexpr int   kFloodThreshold = 6;              // > this in window = offense
+        constexpr DWORD kFloodOffenseDecayMs = 600000;    // 10 min calm resets escalation
+        constexpr int   kFloodAutoMuteOffense = 4;        // 4th offense -> permanent mute
+        constexpr DWORD kFloodCooldownsMs[] = { 15000, 60000, 300000 }; // 15 s, 1 min, 5 min
+
+        struct SenderFloodInfo
+        {
+            DWORD timestamps[kFloodThreshold + 1]{}; // ring of recent message ticks
+            int head = 0;
+            int count = 0;
+            int offenseCount = 0;       // escalation level
+            DWORD mutedUntil = 0;       // active temporary-suppression expiry
+            DWORD lastOffenseTick = 0;  // for escalation decay
+            DWORD lastSeenTick = 0;     // for stale-entry cleanup
+        };
+
+        std::unordered_map<std::string, SenderFloodInfo> g_senderFlood;
+        DWORD g_lastSenderFloodCleanup = 0;
+
+        bool is_public_flood_channel(int chatType)
+        {
+            // Normal (34 typed / 41 in-game), Trade (38), Shout (39),
+            // Area (49 in-game).  See ChatType.h note: enum names mislead.
+            return chatType == 34 || chatType == 38 || chatType == 39
+                || chatType == 41 || chatType == 49;
+        }
+
+        bool is_local_player(const std::string& lowerName)
+        {
+            if (!g_pPlayerData || g_pPlayerData->charId == 0)
+                return false;
+            auto* myName = g_pPlayerData->charName.data();
+            if (!myName || myName[0] == '\0')
+                return false;
+            return lowerName == to_lower(myName);
+        }
+
+        void prune_sender_flood(DWORD now)
+        {
+            if (now - g_lastSenderFloodCleanup < kRateLimitCleanupInterval)
+                return;
+            g_lastSenderFloodCleanup = now;
+
+            for (auto it = g_senderFlood.begin(); it != g_senderFlood.end();)
+            {
+                bool muted = it->second.mutedUntil != 0
+                    && static_cast<int32_t>(now - it->second.mutedUntil) < 0;
+                if (!muted && now - it->second.lastSeenTick > kFloodOffenseDecayMs)
+                    it = g_senderFlood.erase(it);
+                else
+                    ++it;
+            }
+        }
+
+        void auto_mute_flooder(const std::string& lowerName, const std::string& displayName)
+        {
+            if (g_muteList.names.count(lowerName))
+                return;
+            if (g_muteList.names.size() >= kMaxMutedPlayers)
+                return;
+
+            g_muteList.names.insert(lowerName);
+            save_mute_entry(lowerName, true);
+
+            char buf[128]{};
+            std::snprintf(buf, sizeof(buf), "[Anti-spam] %s has been muted for flooding.",
+                          displayName.empty() ? lowerName.c_str() : displayName.c_str());
+            push_msg_raw(24, buf, kMsgFlagNone, 0);
+        }
+
+        // Returns true if this message should be suppressed (sender is flooding
+        // or currently serving an escalation cooldown).
+        bool check_sender_flood(const char* text, int chatType)
+        {
+            if (!is_public_flood_channel(chatType))
+                return false;
+
+            auto sender = extract_sender_name(text);
+            if (sender.empty() || is_local_player(sender))
+                return false;
+
+            auto now = GetTickCount();
+            prune_sender_flood(now);
+
+            auto& info = g_senderFlood[sender];
+            info.lastSeenTick = now;
+
+            // Still inside an active suppression window — drop silently.
+            if (info.mutedUntil != 0 && static_cast<int32_t>(now - info.mutedUntil) < 0)
+                return true;
+
+            // Record this message in the sliding-window ring.
+            info.timestamps[info.head] = now;
+            info.head = (info.head + 1) % (kFloodThreshold + 1);
+            if (info.count < kFloodThreshold + 1)
+                ++info.count;
+
+            int recent = 0;
+            for (int i = 0; i < info.count; ++i)
+                if (now - info.timestamps[i] < kFloodWindowMs)
+                    ++recent;
+
+            if (recent <= kFloodThreshold)
+                return false;   // within the allowed burst
+
+            // Flood detected.  Forgive prior offenses after a long calm gap so
+            // escalation only stacks for sustained (bot-like) flooding.
+            if (info.lastOffenseTick != 0 && now - info.lastOffenseTick > kFloodOffenseDecayMs)
+                info.offenseCount = 0;
+            info.lastOffenseTick = now;
+            ++info.offenseCount;
+
+            // Reset the window; the cooldown / mute is the active gate now.
+            info.count = 0;
+            info.head = 0;
+
+            if (info.offenseCount >= kFloodAutoMuteOffense)
+            {
+                auto_mute_flooder(sender, extract_sender_name(text, false));
+                return true;
+            }
+
+            auto tier = std::min(info.offenseCount,
+                                 static_cast<int>(std::size(kFloodCooldownsMs))) - 1;
+            info.mutedUntil = now + kFloodCooldownsMs[tier];
+            return true;
+        }
+
         // ---------------------------------------------------------------
         // push_msg — Full security pipeline entry point
         // ---------------------------------------------------------------
@@ -797,15 +918,27 @@ namespace custom_chat
             if (is_muted_by_content(sanitized))
                 return;
 
+            // The local player's own messages are never throttled — you should
+            // always see exactly what you said (and we must never auto-mute
+            // yourself).  Skips the flood guard, rate limit and duplicate
+            // collapse for self; other senders still pass through all of them.
+            bool self = is_local_player(extract_sender_name(text));
+
+            // Layer 8: Per-sender flood guard — public channels only.  Catches
+            // a single sender flooding with DIFFERENT messages; escalates to a
+            // permanent auto-mute for sustained bot-like flooding.
+            if (!self && check_sender_flood(text, chatType))
+                return;
+
             // Layer 2: Rate limit — keyed on sanitized text, public channels only.
             // Suppresses the same text appearing 5+ times in 10 seconds.
-            if (check_rate_limit(sanitized, chatType))
+            if (!self && check_rate_limit(sanitized, chatType))
                 return;
 
             // Layer 3: Duplicate detection — keyed on sanitized text.
             // If ≥3 consecutive, update the existing ring entry's "(xN)"
             // counter instead of adding a new line.
-            int dupeCount = check_duplicate(sanitized);
+            int dupeCount = self ? 1 : check_duplicate(sanitized);
             if (dupeCount >= kDuplicateThreshold)
             {
                 // Scan backwards in the ring to find the previous matching
@@ -934,6 +1067,63 @@ namespace custom_chat
             return true;
         }
 
+        // Native CChat dropdown-open flags, reversed from game.exe:
+        //   CChat::Render  @0x47DB70 gates the channel list on byte +0x75B4
+        //     (draws 6 channel rows over the bottom-left of the lower chat),
+        //     and a second item dropdown on byte +0x75B5.
+        //   CChat::InputProc @0x487590 toggles those bytes on click.
+        // Our chat overlay draws after all native UI (in the Present hook), so
+        // it would otherwise sit on top of these popups.  While either is open
+        // we skip the lower panel so the native dropdown stays readable.
+        constexpr uintptr_t kNativeChannelDropdownOpenOffset = 0x75B4;
+        constexpr uintptr_t kNativeItemDropdownOpenOffset = 0x75B5;
+
+        bool native_chat_dropdown_open()
+        {
+            auto panelPtr = g_chatPanelPtr;
+            if (!panelPtr)
+                return false;
+
+            return *reinterpret_cast<const unsigned char*>(panelPtr + kNativeChannelDropdownOpenOffset) != 0
+                || *reinterpret_cast<const unsigned char*>(panelPtr + kNativeItemDropdownOpenOffset) != 0;
+        }
+
+        // Native chat "Filter Option" window state.  Reversed from game.exe
+        // CChat::Render @0x47DB70, which calls the filter predicate
+        // FUN_00420750(chatType) per line and skips the line when it returns 0.
+        // The predicate reads 8 int flags (1 = show, 0 = hide) from the chat
+        // config object pointed to by *(void**)0x7C06F8:
+        //   +0x20 Damage   +0x24 Acquire  +0x28 Death   +0x2C Notice
+        //   +0x30 Common   +0x34 Party    +0x38 Guild   +0x3C Trade
+        // We read the same live object so toggling a checkbox immediately
+        // shows/hides messages in our overlay, matching the native behavior.
+        // Types outside these categories are always shown (native default = 1).
+        constexpr uintptr_t kNativeChatFilterPtrAddr = 0x7C06F8;
+
+        bool chat_type_visible(int chatType)
+        {
+            auto base = *reinterpret_cast<const uintptr_t*>(kNativeChatFilterPtrAddr);
+            if (!base)
+                return true;
+
+            uintptr_t flagOffset;
+            switch (chatType)
+            {
+            case 15: case 16: case 20:                       flagOffset = 0x20; break; // Damage
+            case 18: case 19: case 21: case 22: case 31:     flagOffset = 0x24; break; // Acquire
+            case 17:                                         flagOffset = 0x28; break; // Death
+            case 23: case 24: case 25: case 26:
+            case 27: case 28: case 29: case 30:              flagOffset = 0x2C; break; // Notice
+            case 34: case 48:                                flagOffset = 0x30; break; // Common
+            case 35:                                         flagOffset = 0x34; break; // Party
+            case 37:                                         flagOffset = 0x38; break; // Guild
+            case 38: case 49:                                flagOffset = 0x3C; break; // Trade
+            default:                                         return true;
+            }
+
+            return *reinterpret_cast<const int*>(base + flagOffset) != 0;
+        }
+
         // Wrap a single message into 1–3 display lines, appending them to
         // the `lines` array.  Emoji tokens (":name:") count as 2 visual
         // columns.  Returns the new lineCount after appending.
@@ -963,13 +1153,26 @@ namespace custom_chat
                     int advanceBytes = 1;
                     int advanceColumns = 1;
 
-                    if (msg[end] == ':')
+                    auto* emoji = (msg[end] == ':') ? find_emoji_by_token(msg + end) : nullptr;
+                    if (emoji)
                     {
-                        if (auto* emoji = find_emoji_by_token(msg + end))
-                        {
-                            advanceBytes = static_cast<int>(emoji->token.size());
-                            advanceColumns = is_visual_token_enabled(emoji->kind) ? 2 : 0;
-                        }
+                        advanceBytes = static_cast<int>(emoji->token.size());
+                        advanceColumns = is_visual_token_enabled(emoji->kind) ? 2 : 0;
+                    }
+                    else
+                    {
+                        // Advance by a whole UTF-8 codepoint so a wrap boundary
+                        // never splits a multibyte character (a split sequence
+                        // renders as a broken '?'/box glyph).  3-4 byte
+                        // sequences (CJK, kana, hangul) are double-width.
+                        unsigned char lead = static_cast<unsigned char>(msg[end]);
+                        if (lead >= 0xF0)      advanceBytes = 4;
+                        else if (lead >= 0xE0) advanceBytes = 3;
+                        else if (lead >= 0xC0) advanceBytes = 2;
+                        else                   advanceBytes = 1;
+                        if (end + advanceBytes > len)
+                            advanceBytes = len - end;
+                        advanceColumns = (advanceBytes >= 3) ? 2 : 1;
                     }
 
                     if (visualColumns > 0 && visualColumns + advanceColumns > charsPerLine)
@@ -1023,6 +1226,21 @@ namespace custom_chat
         // rendering plain text via D3DX and emojis as ImGui texture quads.
         // outline=true  → 4-direction outline (lower/social panel)
         // outline=false → single drop shadow at (x+1, y+1) (upper/combat panel)
+        // Chat text is queued here as D3DX runs and drawn after ImGui by
+        // flush_d3dx_text() with the game's own ID3DXFont (GDI rasterizer), so it
+        // looks pixel-identical to native chat and renders the game's codepage
+        // directly (ñ etc. need no transcode). Emoji/GIF tokens are drawn inline
+        // as ImGui image quads. Width is measured with the ImGui font only.
+        struct D3DXTextRun
+        {
+            float x, y;
+            D3DCOLOR color;
+            char text[256];
+        };
+        constexpr int kMaxD3DXTextRuns = 2048;
+        D3DXTextRun g_d3dxRuns[kMaxD3DXTextRuns]{};
+        int g_d3dxRunCount = 0;
+
         void draw_text_line(
             ImDrawList* drawList,
             ImFont* font,
@@ -1072,16 +1290,14 @@ namespace custom_chat
                 const char* pEnd = text + idx;
                 auto runLen = static_cast<std::size_t>(pEnd - p);
 
-                // Measure text width using the ImGui font (for cursor advance
-                // and emoji positioning).  The D3DX font may produce slightly
-                // different widths, but emoji tokens need a consistent advance.
+                // Measure with the ImGui font for cursor advance / emoji spacing.
                 float runW = font
                     ? font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, p, pEnd).x
                     : ImGui::CalcTextSize(p, pEnd).x;
 
-                // Queue the text run for D3DX rendering after ImGui flush.
-                // outline=true:  4-direction outline (N/S/E/W black + center color)
-                // outline=false: single drop shadow at (+1,+1) + center color
+                // Queue the text run for D3DX rendering after the ImGui flush.
+                // outline=true:  4-direction outline (N/S/E/W) + centre colour.
+                // outline=false: single drop shadow at (+1,+1) + centre colour.
                 int shadowDraws = outline ? 4 : 1;
                 if (runLen > 0 && runLen < sizeof(D3DXTextRun::text) &&
                     g_d3dxRunCount + shadowDraws + 1 <= kMaxD3DXTextRuns)
@@ -1267,6 +1483,8 @@ namespace custom_chat
     void record_chat_type(int chatType, const char* text)
     {
         load_state();
+        // Text stays in the game's native codepage — flush_d3dx_text() renders
+        // it with the native font via DrawTextA, which handles the codepage.
         // Upper panel messages (combat/system, types 15–33, 50) are from the
         // server, not from players — skip the security pipeline entirely.
         // Only lower panel messages (social chat, types 34+) are filtered.
@@ -1283,16 +1501,155 @@ namespace custom_chat
         }
     }
 
+    // Load the ImGui chat font into the atlas. Must run at init, BEFORE the
+    // first frame builds the atlas — a font added lazily afterwards never gets
+    // a glyph texture. Merges Arial (Latin + Cyrillic + Vietnamese) with a CJK
+    // face (YaHei/SimSun). g_parallelFont is now used for the chat BUBBLES and
+    // for text-width MEASUREMENT in draw_text_line; the lower chat box itself
+    // renders with the native ID3DXFont (see flush_d3dx_text).
+    void load_chat_font()
+    {
+        if (g_parallelFontLoaded)
+            return;
+        g_parallelFontLoaded = true;
+
+        auto& io = ImGui::GetIO();
+        io.Fonts->AddFontDefault();
+
+        char windowsDir[MAX_PATH]{};
+        if (!GetWindowsDirectoryA(windowsDir, MAX_PATH))
+            return;
+        std::string fonts(windowsDir);
+        if (!fonts.empty() && fonts.back() != '\\')
+            fonts += "\\";
+        fonts += "Fonts\\";
+
+        // ImGui keeps the glyph-ranges pointer until the atlas is built, so it
+        // must outlive this function — keep it static.
+        static ImVector<ImWchar> s_ranges;
+        if (s_ranges.empty())
+        {
+            ImFontGlyphRangesBuilder builder;
+            builder.AddRanges(io.Fonts->GetGlyphRangesDefault());
+            builder.AddRanges(io.Fonts->GetGlyphRangesCyrillic());
+            builder.AddRanges(io.Fonts->GetGlyphRangesVietnamese());
+            builder.BuildRanges(&s_ranges);
+        }
+
+        constexpr float kSize = 16.0f;
+        std::string arial = fonts + "arial.ttf";
+        if (GetFileAttributesA(arial.c_str()) != INVALID_FILE_ATTRIBUTES)
+        {
+            ImFontConfig cfg{};
+            std::snprintf(cfg.Name, sizeof(cfg.Name), "ChatUnicode");
+            g_parallelFont = io.Fonts->AddFontFromFileTTF(
+                arial.c_str(), kSize, &cfg, s_ranges.Data);
+
+            // Merge the first available face for each CJK script onto the base
+            // font, so Chinese / Japanese / Korean all render. Each list is a
+            // fallback chain of standard Windows font files. Korean carries the
+            // full Hangul block (~11k glyphs) — the bulk of the atlas.
+            auto mergeFace = [&](std::initializer_list<const char*> files, const ImWchar* ranges) {
+                for (auto* file : files)
+                {
+                    std::string path = fonts + file;
+                    if (GetFileAttributesA(path.c_str()) == INVALID_FILE_ATTRIBUTES)
+                        continue;
+                    ImFontConfig mergeCfg{};
+                    mergeCfg.MergeMode = true;
+                    // 1x oversampling for CJK: the default 3x triples the atlas
+                    // width per glyph, which with thousands of CJK + Hangul
+                    // glyphs overflows the atlas and silently drops glyphs (they
+                    // then render as the '?' fallback). 1x is the recommended
+                    // setting for large CJK fonts and keeps every glyph.
+                    mergeCfg.OversampleH = 1;
+                    mergeCfg.OversampleV = 1;
+                    mergeCfg.PixelSnapH = true;
+                    io.Fonts->AddFontFromFileTTF(path.c_str(), kSize, &mergeCfg, ranges);
+                    return true;
+                }
+                return false;
+            };
+
+            // Chinese (Simplified, common ~2.5k — covers everyday chat).
+            mergeFace({ "msyh.ttc", "msyhl.ttc", "simsun.ttc", "simhei.ttf" },
+                      io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
+            // Japanese (kana + common kanji).
+            mergeFace({ "meiryo.ttc", "YuGothM.ttc", "yugothic.ttf", "msgothic.ttc" },
+                      io.Fonts->GetGlyphRangesJapanese());
+            // Korean (full Hangul syllables).
+            mergeFace({ "malgun.ttf", "malgunsl.ttf", "gulim.ttc", "batang.ttc" },
+                      io.Fonts->GetGlyphRangesKorean());
+        }
+
+        // Fall back to the default font so the chat path never sees null.
+        if (!g_parallelFont && !io.Fonts->Fonts.empty())
+            g_parallelFont = io.Fonts->Fonts[0];
+    }
+
     bool hide_native_chat_visuals()
     {
         load_state();
         return true;
     }
 
+    // Wipe the entire parallel chat history.  Called on relog (return to
+    // character select) so a new session never inherits the previous
+    // character's messages.  Resetting g_head/g_count is enough to stop the
+    // old entries from rendering; we also clear the parallel arrays and the
+    // rate-limit tracker so no stale flags or spam counters carry over.
+    void clear_messages()
+    {
+        for (auto& msg : g_ring)
+        {
+            msg.chatType = 0;
+            msg.text[0] = '\0';
+        }
+        for (auto& flag : g_msgFlags)
+            flag = kMsgFlagNone;
+        for (auto& dupe : g_msgDupeCount)
+            dupe = 0;
+
+        g_head = 0;
+        g_count = 0;
+        g_rateLimits.clear();
+        g_senderFlood.clear();
+    }
+
+    // Draw the queued chat text runs with the game's own native chat font
+    // (D3DX / GDI rasterizer) for pixel-identical native appearance. DrawTextA
+    // renders the game's codepage directly, so non-ASCII (ñ, etc.) needs no
+    // transcode. Called once per frame, after ImGui builds its draw data.
+    void flush_d3dx_text()
+    {
+        if (g_d3dxRunCount <= 0)
+            return;
+
+        auto* font = g_var->camera.d3dxFont0;
+        if (!font) font = g_var->camera.d3dxFont1;
+        if (!font) font = g_var->camera.d3dxFont2;
+        if (!font) font = g_var->camera.d3dxFont3;
+        if (!font)
+            return;
+
+        for (int i = 0; i < g_d3dxRunCount; ++i)
+        {
+            const auto& run = g_d3dxRuns[i];
+            RECT rect;
+            rect.left   = static_cast<LONG>(run.x);
+            rect.top    = static_cast<LONG>(run.y);
+            rect.right  = rect.left + 600;
+            rect.bottom = rect.top + 24;
+            font->DrawTextA(nullptr, run.text, -1, &rect, DT_NOCLIP, run.color);
+        }
+
+        g_d3dxRunCount = 0;
+    }
+
     void render_ingame_chat()
     {
         load_state();
-        g_d3dxRunCount = 0;  // reset D3DX text buffer each frame
+        g_d3dxRunCount = 0;   // reset the D3DX text queue each frame
         if (!is_game_scene_stable())
             return;
 
@@ -1310,6 +1667,13 @@ namespace custom_chat
         {
             int idx = (start + i) % kMaxParallelMsgs;
             const auto& msg = g_ring[idx];
+
+            // Respect the native "Filter Option" checkboxes (Damage/Acquire/
+            // Death/Notice, Common/Party/Guild/Trade). Read live so toggling a
+            // box hides/shows existing messages just like the native chat.
+            if (!chat_type_visible(msg.chatType))
+                continue;
+
             auto flag = g_msgFlags[idx];
 
             // Build display text, appending duplicate count if flagged
@@ -1346,7 +1710,9 @@ namespace custom_chat
             }
         }
 
-        auto* drawList = ImGui::GetForegroundDrawList();
+        // Background draw list: chat renders over the game world but stays
+        // behind ImGui windows, so overlay panels remain readable above it.
+        auto* drawList = ImGui::GetBackgroundDrawList();
         draw_line_stack(
             drawList,
             metrics.textX,
@@ -1356,46 +1722,21 @@ namespace custom_chat
             upperCount,
             read_native_chat_scroll_offset(true),
             false);   // upper panel: single drop shadow
-        draw_line_stack(
-            drawList,
-            metrics.textX,
-            metrics.lowerFirstLineY,
-            metrics.lowerVisibleLines,
-            lowerLines,
-            lowerCount,
-            read_native_chat_scroll_offset(false),
-            true);    // lower panel: 4-direction outline
-    }
-
-    void flush_d3dx_text()
-    {
-        if (g_d3dxRunCount <= 0)
-            return;
-
-        // Use the game's native chat font (Arial 15, weight 400, GDI rasterized).
-        // d3dxFont0 is the primary chat font slot at Camera offset 0x3A8.
-        auto* font = g_var->camera.d3dxFont0;
-        if (!font)
-            font = g_var->camera.d3dxFont1;
-        if (!font)
-            font = g_var->camera.d3dxFont2;
-        if (!font)
-            font = g_var->camera.d3dxFont3;
-        if (!font)
-            return;
-
-        for (int i = 0; i < g_d3dxRunCount; ++i)
-        {
-            const auto& run = g_d3dxRuns[i];
-            RECT rect;
-            rect.left   = static_cast<LONG>(run.x);
-            rect.top    = static_cast<LONG>(run.y);
-            rect.right  = rect.left + 600;
-            rect.bottom = rect.top + 24;
-            font->DrawTextA(nullptr, run.text, -1, &rect, DT_NOCLIP, run.color);
-        }
-
-        g_d3dxRunCount = 0;
+        // Skip the lower panel while a native chat dropdown (channel selector
+        // or item list) is expanded — it covers the bottom-left of the lower
+        // chat, and our overlay would otherwise draw on top of it.  The popup
+        // is transient (only while picking a channel), so the upper combat
+        // panel keeps rendering and the lower chat returns once it closes.
+        if (!native_chat_dropdown_open())
+            draw_line_stack(
+                drawList,
+                metrics.textX,
+                metrics.lowerFirstLineY,
+                metrics.lowerVisibleLines,
+                lowerLines,
+                lowerCount,
+                read_native_chat_scroll_offset(false),
+                true);    // lower panel: 4-direction outline
     }
 
     void render_options()

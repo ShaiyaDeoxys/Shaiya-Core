@@ -211,22 +211,12 @@ namespace imgui_layer {
 
         g_panelPosition.x = read_imgui_float(kPanelPosXKey, g_panelPosition.x);
         g_panelPosition.y = read_imgui_float(kPanelPosYKey, g_panelPosition.y);
-        g_rewardButtonPosition.x = read_imgui_float(kRewardBtnXKey, g_rewardButtonPosition.x);
-        g_rewardButtonPosition.y = read_imgui_float(kRewardBtnYKey, g_rewardButtonPosition.y);
         g_rewardBarPosition.x = read_imgui_float(kRewardBarXKey, -1.0f);
         g_rewardBarPosition.y = read_imgui_float(kRewardBarYKey, -1.0f);
-        g_rouletteButtonPosition.x = read_imgui_float(kRouletteBtnXKey, g_rouletteButtonPosition.x);
-        g_rouletteButtonPosition.y = read_imgui_float(kRouletteBtnYKey, g_rouletteButtonPosition.y);
-        g_settingsButtonPosition.x = read_imgui_float(kSettingsBtnXKey, g_settingsButtonPosition.x);
-        g_settingsButtonPosition.y = read_imgui_float(kSettingsBtnYKey, g_settingsButtonPosition.y);
         g_settingsPanelPosition.x = read_imgui_float(kSettingsPanelXKey, -1.0f);
         g_settingsPanelPosition.y = read_imgui_float(kSettingsPanelYKey, -1.0f);
-        g_npcButtonPosition.x = read_imgui_float(kNpcBtnXKey, g_npcButtonPosition.x);
-        g_npcButtonPosition.y = read_imgui_float(kNpcBtnYKey, g_npcButtonPosition.y);
         g_npcPanelPosition.x = read_imgui_float(kNpcPanelXKey, -1.0f);
         g_npcPanelPosition.y = read_imgui_float(kNpcPanelYKey, -1.0f);
-        g_teleportButtonPosition.x = read_imgui_float(kTeleportBtnXKey, g_teleportButtonPosition.x);
-        g_teleportButtonPosition.y = read_imgui_float(kTeleportBtnYKey, g_teleportButtonPosition.y);
         g_teleportPanelPosition.x = read_imgui_float(kTeleportPanelXKey, -1.0f);
         g_teleportPanelPosition.y = read_imgui_float(kTeleportPanelYKey, -1.0f);
         g_rewardAutoClaimEnabled = read_imgui_bool(kRewardAutoClaimKey, false);
@@ -237,22 +227,12 @@ namespace imgui_layer {
     {
         write_imgui_float(kPanelPosXKey, g_panelPosition.x);
         write_imgui_float(kPanelPosYKey, g_panelPosition.y);
-        write_imgui_float(kRewardBtnXKey, g_rewardButtonPosition.x);
-        write_imgui_float(kRewardBtnYKey, g_rewardButtonPosition.y);
         write_imgui_float(kRewardBarXKey, g_rewardBarPosition.x);
         write_imgui_float(kRewardBarYKey, g_rewardBarPosition.y);
-        write_imgui_float(kRouletteBtnXKey, g_rouletteButtonPosition.x);
-        write_imgui_float(kRouletteBtnYKey, g_rouletteButtonPosition.y);
-        write_imgui_float(kSettingsBtnXKey, g_settingsButtonPosition.x);
-        write_imgui_float(kSettingsBtnYKey, g_settingsButtonPosition.y);
         write_imgui_float(kSettingsPanelXKey, g_settingsPanelPosition.x);
         write_imgui_float(kSettingsPanelYKey, g_settingsPanelPosition.y);
-        write_imgui_float(kNpcBtnXKey, g_npcButtonPosition.x);
-        write_imgui_float(kNpcBtnYKey, g_npcButtonPosition.y);
         write_imgui_float(kNpcPanelXKey, g_npcPanelPosition.x);
         write_imgui_float(kNpcPanelYKey, g_npcPanelPosition.y);
-        write_imgui_float(kTeleportBtnXKey, g_teleportButtonPosition.x);
-        write_imgui_float(kTeleportBtnYKey, g_teleportButtonPosition.y);
         write_imgui_float(kTeleportPanelXKey, g_teleportPanelPosition.x);
         write_imgui_float(kTeleportPanelYKey, g_teleportPanelPosition.y);
         write_imgui_bool(kRewardAutoClaimKey, g_rewardAutoClaimEnabled);
@@ -410,43 +390,8 @@ namespace imgui_layer {
         remember_rect(g_settingsButtonRect, min, max);
 
         auto hovered = ImGui::IsItemHovered() || is_cursor_in_rect(g_settingsButtonRect);
-        auto mouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Left);
-        auto mouseReleased = ImGui::IsMouseReleased(ImGuiMouseButton_Left);
-
         if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-        {
-            g_draggingSettingsButton = true;
-            g_draggedSettingsButton = false;
-            g_settingsButtonDragOffset = ImVec2(
-                io.MousePos.x - g_settingsButtonPosition.x,
-                io.MousePos.y - g_settingsButtonPosition.y);
-        }
-
-        if (g_draggingSettingsButton && mouseDown)
-        {
-            auto newPos = ImVec2(
-                io.MousePos.x - g_settingsButtonDragOffset.x,
-                io.MousePos.y - g_settingsButtonDragOffset.y);
-            auto clamped = clamp_window_position(newPos, buttonSize, io.DisplaySize);
-            if (std::fabs(clamped.x - g_settingsButtonPosition.x) > 1.0f
-                || std::fabs(clamped.y - g_settingsButtonPosition.y) > 1.0f)
-            {
-                g_draggedSettingsButton = true;
-                g_settingsButtonPosition = clamped;
-            }
-        }
-
-        if (mouseReleased && g_draggingSettingsButton)
-        {
-            if (g_draggedSettingsButton)
-                mark_imgui_settings_dirty();
-            else if (hovered)
-                g_showSettingsPanel = !g_showSettingsPanel;
-
-            g_draggingSettingsButton = false;
-            g_draggedSettingsButton = false;
-            release_imgui_capture();
-        }
+            g_showSettingsPanel = !g_showSettingsPanel;
 
         auto drawList = ImGui::GetWindowDrawList();
         auto* texture = load_settings_icon_texture();
@@ -578,43 +523,8 @@ namespace imgui_layer {
         remember_rect(g_npcButtonRect, min, max);
 
         auto hovered = ImGui::IsItemHovered() || is_cursor_in_rect(g_npcButtonRect);
-        auto mouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Left);
-        auto mouseReleased = ImGui::IsMouseReleased(ImGuiMouseButton_Left);
-
         if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-        {
-            g_draggingNpcButton = true;
-            g_draggedNpcButton = false;
-            g_npcButtonDragOffset = ImVec2(
-                io.MousePos.x - g_npcButtonPosition.x,
-                io.MousePos.y - g_npcButtonPosition.y);
-        }
-
-        if (g_draggingNpcButton && mouseDown)
-        {
-            auto newPos = ImVec2(
-                io.MousePos.x - g_npcButtonDragOffset.x,
-                io.MousePos.y - g_npcButtonDragOffset.y);
-            auto clamped = clamp_window_position(newPos, buttonSize, io.DisplaySize);
-            if (std::fabs(clamped.x - g_npcButtonPosition.x) > 1.0f
-                || std::fabs(clamped.y - g_npcButtonPosition.y) > 1.0f)
-            {
-                g_draggedNpcButton = true;
-                g_npcButtonPosition = clamped;
-            }
-        }
-
-        if (mouseReleased && g_draggingNpcButton)
-        {
-            if (g_draggedNpcButton)
-                mark_imgui_settings_dirty();
-            else if (hovered)
-                g_showNpcPanel = !g_showNpcPanel;
-
-            g_draggingNpcButton = false;
-            g_draggedNpcButton = false;
-            release_imgui_capture();
-        }
+            g_showNpcPanel = !g_showNpcPanel;
 
         auto drawList = ImGui::GetWindowDrawList();
         auto* texture = load_npc_icon_texture();

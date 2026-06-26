@@ -48,6 +48,20 @@ namespace imgui_layer
     void sync_emoji_overlay_scene_state()
     {
         auto now = GetTickCount();
+
+        // Wipe the parallel chat when the player returns to character select
+        // (screen state 6 -> 3, i.e. relog).  Map changes / teleports go
+        // 6 -> 5 -> 6 and never reach 3, so in-world transitions keep their
+        // chat history.  Edge-triggered so the per-frame double call (and a
+        // lingering char-select screen) clears exactly once.
+        {
+            static int lastScreenState = -1;
+            auto screenState = *reinterpret_cast<const int*>(kGameScreenStateAddr);
+            if (screenState == kScreenStateCharSelect && lastScreenState != kScreenStateCharSelect)
+                custom_chat::clear_messages();
+            lastScreenState = screenState;
+        }
+
         auto gameScene = is_game_scene();
         auto charId = g_pPlayerData ? g_pPlayerData->charId : uint32_t{ 0 };
         auto mapId = gameScene ? g_pPlayerData->mapId : uint16_t{ 0 };
@@ -928,46 +942,51 @@ namespace imgui_layer
         if (!text || text[0] == '\0')
             return text;
 
+        // `text` can alias g_sanitizedFloatingText: an earlier hook for the
+        // same bubble (e.g. balloon create) may have already swapped the
+        // native pointer to our buffer, and the following StaticTextCreate
+        // hands it straight back here.  sanitize_visual_tokens clears its
+        // output buffer up front, so sanitizing directly from `text` could
+        // wipe the source mid-read and blank out the bubble.  Copy into a
+        // reused scratch buffer first (no per-call allocation after warm-up),
+        // then always return our stable global buffer.
+        static thread_local std::string scratch;
+        scratch.assign(text);
+
+        // Chat bubbles / floating text above characters strip emoji & GIF
+        // tokens from the visible text but never render the images — bubble
+        // image rendering was removed due to multiple positioning/wrapping
+        // bugs.  The lower chat box keeps its emoji rendering through
+        // prepare_chat_text_for_emojis / draw_lower_chat_emoji_overlay.
+        //
+        // Token removal uses 0 replacement spaces so the message stays
+        // coherent (":emoji7:" is dropped instead of leaving a blank gap that
+        // would otherwise reserve room for an image we no longer draw).
         ChatEmojiLineOverlay line{};
-        auto changed = sanitize_visual_tokens(text, g_sanitizedFloatingText, line, 4);
-        auto* result = changed ? g_sanitizedFloatingText.c_str() : text;
+        sanitize_visual_tokens(scratch.c_str(), g_sanitizedFloatingText, line, 0);
 
-        if (!changed)
-        {
-            std::lock_guard<std::mutex> lock(g_chatEmojiMutex);
-            for (auto it = g_lowerChatEmojiLines.rbegin(); it != g_lowerChatEmojiLines.rend(); ++it)
-            {
-                std::size_t prefixLen = 0;
-                if (matches_sanitized_static_text(text, it->text, &prefixLen))
-                {
-                    line.tick = GetTickCount();
-                    line.tokens = it->tokens;
-
-                    if (prefixLen > 0)
-                    {
-                        std::string prefix(text, prefixLen);
-                        auto prefixWidth = measure_chat_prefix_width(prefix);
-                        for (auto& token : line.tokens)
-                            token.xOffset += prefixWidth;
-                    }
-                    break;
-                }
-            }
-        }
+        // Carry the ORIGINAL UTF-8 text (tokens intact) so the bubble re-render
+        // can draw :emojiN:/:gifN: inline, exactly like the lower chat box. The
+        // native draw (suppressed) and the returned value use the stripped
+        // string; we keep the unstripped one only for our own rendering.
+        line.tokens.clear();
+        line.text = scratch;
 
         if (pushStaticCreateContext)
         {
+            // Generic static text (names / combat / UI) — keep the create stack
+            // balanced but DON'T flag it for our Unicode override.
             g_staticTextCreateStack.push_back(std::move(line));
         }
         else
         {
+            // Chat balloon / floating chat text — flag it for Unicode render.
             std::lock_guard<std::mutex> lock(g_floatingEmojiMutex);
-            g_hasPendingFloatingEmojiLine = !line.tokens.empty();
-            if (g_hasPendingFloatingEmojiLine)
-                g_pendingFloatingEmojiLine = std::move(line);
+            g_hasPendingFloatingEmojiLine = !line.text.empty();
+            g_pendingFloatingEmojiLine = std::move(line);
         }
 
-        return result;
+        return g_sanitizedFloatingText.c_str();
     }
 
     const char* __cdecl prepare_static_text_for_emojis(const char* text)
@@ -975,13 +994,11 @@ namespace imgui_layer
         return prepare_text_for_emojis(text, true);
     }
 
-    constexpr std::size_t kMaxBubbleTextLength = 30;
-
     const char* __cdecl prepare_floating_text_for_emojis(const char* text)
     {
-        // Skip emoji rendering in bubbles for long messages — they wrap and look broken
-        if (text && std::strlen(text) > kMaxBubbleTextLength)
-            return text;
+        // Strip tokens for bubbles of any length.  Without image rendering the
+        // old long-message guard is unnecessary — we just want the tokens
+        // omitted so the bubble text reads coherently.
         return prepare_text_for_emojis(text, false);
     }
 
@@ -992,7 +1009,25 @@ namespace imgui_layer
             return;
 
         if (staticText)
+        {
+            g_pendingFloatingEmojiLine.lastSeenTick = GetTickCount();
+
+            // The balloon's dark background is sized from SStaticText.size.width
+            // (D2D_SIZE_U at +0x4), which the native set to the wider mojibake
+            // texture.  Overwrite it with our Unicode text width so the
+            // background hugs the text we actually draw.
+            if (g_parallelFont && !g_pendingFloatingEmojiLine.text.empty())
+            {
+                float w = measure_unicode_chat_text(
+                    g_parallelFont, 16.0f, g_pendingFloatingEmojiLine.text.c_str());
+                if (w > 0.0f)
+                    *reinterpret_cast<std::uint32_t*>(
+                        reinterpret_cast<std::uintptr_t>(staticText) + 0x4) =
+                        static_cast<std::uint32_t>(w + 0.5f);
+            }
+
             g_floatingEmojiLines[staticText] = g_pendingFloatingEmojiLine;
+        }
 
         g_pendingFloatingEmojiLine = {};
         g_hasPendingFloatingEmojiLine = false;
@@ -1074,77 +1109,181 @@ namespace imgui_layer
             g_floatingEmojiRenders.erase(g_floatingEmojiRenders.begin(), g_floatingEmojiRenders.begin() + (g_floatingEmojiRenders.size() - 512));
     }
 
-    void __cdecl record_floating_static_text_render(void* staticText, int x, int y)
+    // Returns true to tell the asm trampoline to SUPPRESS the native (codepage,
+    // mojibake) draw — we re-render this bubble's text ourselves with the
+    // Unicode font.  Returns false for any static text we don't own (names,
+    // combat numbers, UI), which the native then draws normally.
+    bool __cdecl record_floating_static_text_render(void* staticText, int x, int y)
     {
         if (!staticText)
-            return;
+            return false;
 
         auto lowerChat = is_lower_chat_render_position(x, y);
+        auto now = GetTickCount();
 
         std::lock_guard<std::mutex> lock(g_floatingEmojiMutex);
+
+        // Expire stale tracked entries: a freed balloon stops being drawn (and
+        // refreshed), so after a short grace we drop it — that way a reused
+        // static-text pointer (now a name) is never wrongly suppressed.
+        for (auto it = g_floatingEmojiLines.begin(); it != g_floatingEmojiLines.end();)
+        {
+            if (it->second.lastSeenTick != 0 && now - it->second.lastSeenTick > 1000)
+                it = g_floatingEmojiLines.erase(it);
+            else
+                ++it;
+        }
+
         auto line = g_floatingEmojiLines.find(staticText);
-        if (line == g_floatingEmojiLines.end())
-            return;
+        if (line == g_floatingEmojiLines.end() || line->second.text.empty())
+            return false;   // not one of ours → native draws it
 
-        if (line->second.tokens.empty())
-            return;
+        line->second.lastSeenTick = now;   // alive — keep it
 
-        auto now = GetTickCount();
+        // Lower-chat-area static text is handled by the chat overlay; never a
+        // floating bubble, so don't suppress/redraw it here.
+        if (lowerChat)
+            return false;
+
+        // The native draws each text several times per frame (4-way outline +
+        // centre).  Record one overlay per frame, but suppress every call.
+        bool alreadyRecorded = false;
         for (auto& render : g_floatingEmojiRenders)
         {
             if (render.tick == now && render.source == staticText)
             {
-                // Native floating/static text is often drawn several times in
-                // one frame for outlines/shadows.  Keep one emoji pass per
-                // text object; otherwise the images stack with tiny offsets and
-                // look like they are smearing while the actor/camera moves.
-                return;
+                alreadyRecorded = true;
+                break;
             }
         }
 
-        // Keep only the latest frame for each floating text object.  Retaining
-        // the previous 1-2 frames makes images appear to trail behind moving
-        // chat balloons, especially for animated GIF tokens.
-        g_floatingEmojiRenders.erase(
-            std::remove_if(
-                g_floatingEmojiRenders.begin(),
-                g_floatingEmojiRenders.end(),
-                [staticText](const FloatingEmojiRenderOverlay& render) {
-                    return render.source == staticText;
-                }),
-            g_floatingEmojiRenders.end());
+        if (!alreadyRecorded)
+        {
+            // Keep only the latest frame for this source.
+            g_floatingEmojiRenders.erase(
+                std::remove_if(
+                    g_floatingEmojiRenders.begin(),
+                    g_floatingEmojiRenders.end(),
+                    [staticText](const FloatingEmojiRenderOverlay& render) {
+                        return render.source == staticText;
+                    }),
+                g_floatingEmojiRenders.end());
 
-        g_floatingEmojiRenders.push_back({
-            now,
-            staticText,
-            x,
-            y,
-            lowerChat,
-            line->second.tokens });
+            FloatingEmojiRenderOverlay render{};
+            render.tick = now;
+            render.source = staticText;
+            render.x = x;
+            render.y = y;
+            render.lowerChat = false;
+            render.text = line->second.text;
+            g_floatingEmojiRenders.push_back(std::move(render));
 
-        if (g_floatingEmojiRenders.size() > 512)
-            g_floatingEmojiRenders.erase(g_floatingEmojiRenders.begin(), g_floatingEmojiRenders.begin() + (g_floatingEmojiRenders.size() - 512));
+            if (g_floatingEmojiRenders.size() > 512)
+                g_floatingEmojiRenders.erase(g_floatingEmojiRenders.begin(),
+                    g_floatingEmojiRenders.begin() + (g_floatingEmojiRenders.size() - 512));
+        }
+
+        return true;   // suppress the native mojibake draw
     }
 
-    void draw_visual_token_run(ImDrawList* drawList, const std::vector<ChatEmojiTokenOverlay>& tokens, float baseX, float baseY, float iconSize)
+    // Inline chat-text renderer: draws `text` with the ImGui Unicode font,
+    // rendering :emojiN:/:gifN: tokens inline as image quads (GIFs animate via
+    // get_emoji_texture). outline=true → 4-direction black outline (social);
+    // outline=false → single drop shadow. Used by the chat BUBBLES. (The lower
+    // chat box renders its text with the native ID3DXFont via
+    // custom_chat::draw_text_line / flush_d3dx_text, not this.)
+    void draw_unicode_chat_text(ImDrawList* drawList, ImFont* font, float fontSize,
+                                float x, float y, ImU32 color, ImU32 shadow,
+                                const char* text, bool outline)
     {
-        auto emojiIndex = 0;
-        for (auto& token : tokens)
+        if (!drawList || !text || text[0] == '\0')
+            return;
+        if (!font)
+            font = ImGui::GetFont();
+
+        float cursorX = x;
+        float emojiSize = fontSize;
+        auto len = std::strlen(text);
+        std::size_t idx = 0;
+
+        while (idx < len)
         {
-            if (!token.emoji || !is_visual_token_enabled(token.emoji->kind))
+            auto* emoji = (text[idx] == ':') ? find_emoji_by_token(text + idx) : nullptr;
+            if (emoji)
+            {
+                if (is_visual_token_enabled(emoji->kind))
+                {
+                    auto tex = get_emoji_texture(*emoji);
+                    if (tex)
+                    {
+                        drawList->AddImage(reinterpret_cast<ImTextureID>(tex),
+                            ImVec2(cursorX, y), ImVec2(cursorX + emojiSize, y + emojiSize));
+                        cursorX += emojiSize;
+                    }
+                }
+                idx += emoji->token.size();
                 continue;
+            }
 
-            auto texture = get_emoji_texture(*token.emoji);
-            if (!texture)
-                continue;
+            auto runStart = idx;
+            while (idx < len && !(text[idx] == ':' && find_emoji_by_token(text + idx)))
+                ++idx;
 
-            auto x = baseX + token.xOffset + static_cast<float>(emojiIndex) * 2.0f;
-            drawList->AddImage(
-                reinterpret_cast<ImTextureID>(texture),
-                ImVec2(x, baseY),
-                ImVec2(x + iconSize, baseY + iconSize));
-            ++emojiIndex;
+            const char* p = text + runStart;
+            const char* pEnd = text + idx;
+            auto runLen = static_cast<std::size_t>(pEnd - p);
+
+            float runW = font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, p, pEnd).x;
+            if (runLen > 0)
+            {
+                if (outline)
+                {
+                    drawList->AddText(font, fontSize, ImVec2(cursorX, y - 1.0f), shadow, p, pEnd);
+                    drawList->AddText(font, fontSize, ImVec2(cursorX, y + 1.0f), shadow, p, pEnd);
+                    drawList->AddText(font, fontSize, ImVec2(cursorX - 1.0f, y), shadow, p, pEnd);
+                    drawList->AddText(font, fontSize, ImVec2(cursorX + 1.0f, y), shadow, p, pEnd);
+                }
+                else
+                {
+                    drawList->AddText(font, fontSize, ImVec2(cursorX + 1.0f, y + 1.0f), shadow, p, pEnd);
+                }
+                drawList->AddText(font, fontSize, ImVec2(cursorX, y), color, p, pEnd);
+            }
+            cursorX += runW;
         }
+    }
+
+    // Pixel width of `text` rendered by draw_unicode_chat_text (text runs +
+    // emoji quads). Used to size the bubble background to the real content.
+    float measure_unicode_chat_text(ImFont* font, float fontSize, const char* text)
+    {
+        if (!text || text[0] == '\0')
+            return 0.0f;
+        if (!font)
+            font = ImGui::GetFont();
+
+        float width = 0.0f;
+        float emojiSize = fontSize;
+        auto len = std::strlen(text);
+        std::size_t idx = 0;
+
+        while (idx < len)
+        {
+            auto* emoji = (text[idx] == ':') ? find_emoji_by_token(text + idx) : nullptr;
+            if (emoji)
+            {
+                if (is_visual_token_enabled(emoji->kind))
+                    width += emojiSize;
+                idx += emoji->token.size();
+                continue;
+            }
+
+            auto runStart = idx;
+            while (idx < len && !(text[idx] == ':' && find_emoji_by_token(text + idx)))
+                ++idx;
+            width += font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, text + runStart, text + idx).x;
+        }
+        return width;
     }
 
     void draw_floating_emoji_overlays()
@@ -1174,19 +1313,26 @@ namespace imgui_layer
         if (renders.empty())
             return;
 
-        auto iconSize = g_tune.floatingIconSize;
-        auto yAdjust = g_tune.floatingYAdjust;
+        // Re-render the bubble with the ImGui Unicode font + inline emojis/GIFs
+        // (the native draw was suppressed by the asm trampoline). NOTE: bubbles
+        // use the ImGui path, which decodes text as UTF-8; the lower chat box now
+        // uses the native ID3DXFont (codepage). For ASCII + emoji tokens both
+        // look the same — non-ASCII (e.g. ñ) would differ, but bubbles are left
+        // on this path intentionally.
+        auto* font = g_parallelFont ? g_parallelFont : ImGui::GetFont();
+        constexpr float kBubbleFontSize = 16.0f;
+        const ImU32 kShadow = IM_COL32(0, 0, 0, 255);
+        const ImU32 kColor = IM_COL32(255, 255, 255, 255);
+
         for (auto& render : renders)
         {
-            if (render.lowerChat)
-                continue; // Lower chat emojis are drawn by draw_lower_chat_emoji_overlay
+            if (render.lowerChat || render.text.empty())
+                continue;
 
-            draw_visual_token_run(
-                drawList,
-                render.tokens,
-                static_cast<float>(render.x),
-                static_cast<float>(render.y) + yAdjust,
-                iconSize);
+            draw_unicode_chat_text(
+                drawList, font, kBubbleFontSize,
+                static_cast<float>(render.x), static_cast<float>(render.y),
+                kColor, kShadow, render.text.c_str(), true);
         }
     }
 

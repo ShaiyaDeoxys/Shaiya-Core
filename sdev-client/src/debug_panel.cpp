@@ -483,6 +483,7 @@ namespace debug_panel
             if (valid)
                 ImGui::TextDisabled("Pos: %.1f, %.1f, %.1f", pos.x, pos.y, pos.z);
         }
+
     } // namespace (anonymous)
 
     void render()

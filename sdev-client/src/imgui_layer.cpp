@@ -3,6 +3,14 @@
 #include "include/custom_chat.h"
 #include "include/shaiya/RewardItemEvent.h"
 #include "include/shaiya/Roulette.h"
+#include <intrin.h>
+#include <comdef.h>
+#include <exdisp.h>
+#include <shldisp.h>
+#include <shlguid.h>
+#include <shlobj_core.h>
+
+#pragma intrinsic(_ReturnAddress)
 
 void naked_chat_add_token_filter();
 void naked_chat_balloon_text_create();
@@ -15,6 +23,7 @@ void naked_native_text_draw_probe();
 
 namespace imgui_layer
 {
+
     void reset_overlay_rects()
     {
         g_panelDragRect = {};
@@ -63,12 +72,37 @@ namespace imgui_layer
         return hr;
     }
 
+    HRESULT __stdcall hooked_keyboard_get_device_state(IDirectInputDevice8A* device, DWORD cbData, LPVOID lpvData)
+    {
+        auto* original = g_originalKeyboardGetDeviceState;
+        if (g_var && g_var->input.keyboard2 &&
+            g_var->input.keyboard2->device == device &&
+            g_originalKeyboard2GetDeviceState)
+        {
+            original = g_originalKeyboard2GetDeviceState;
+        }
+
+        // Suppress the game's keyboard while an ImGui text field wants input
+        // (e.g. the GM debug panel), so typed keys don't leak into the game.
+        if (g_imguiInitialized && ImGui::GetCurrentContext())
+        {
+            auto& io = ImGui::GetIO();
+            if (io.WantTextInput && lpvData && cbData)
+            {
+                std::memset(lpvData, 0, cbData);
+                return DI_OK;
+            }
+        }
+
+        return original ? original(device, cbData, lpvData) : E_FAIL;
+    }
+
     void install_dinput_mouse_hook()
     {
         if (g_mouseDeviceHooked || !g_var)
             return;
 
-        auto hookDevice = [](shaiya::Mouse* m, GetDeviceStateFn* outOriginal) {
+        auto hookMouse = [](shaiya::Mouse* m, GetDeviceStateFn* outOriginal) {
             if (!m || !m->device)
                 return;
             void* orig = nullptr;
@@ -76,13 +110,26 @@ namespace imgui_layer
                 *outOriginal = reinterpret_cast<GetDeviceStateFn>(orig);
         };
 
-        hookDevice(g_var->input.mouse,  &g_originalMouseGetDeviceState);
-        hookDevice(g_var->input.mouse2, &g_originalMouse2GetDeviceState);
+        hookMouse(g_var->input.mouse,  &g_originalMouseGetDeviceState);
+        hookMouse(g_var->input.mouse2, &g_originalMouse2GetDeviceState);
 
         // If both devices share the same vtable (common), mouse2 hook
         // returns the already-hooked function.  Fall back to mouse1's original.
         if (g_originalMouse2GetDeviceState == reinterpret_cast<GetDeviceStateFn>(hooked_mouse_get_device_state))
             g_originalMouse2GetDeviceState = g_originalMouseGetDeviceState;
+
+        auto hookKeyboard = [](shaiya::Keyboard* k, GetDeviceStateFn* outOriginal) {
+            if (!k || !k->device)
+                return;
+            void* orig = nullptr;
+            if (hook_vtable(k->device, 9, reinterpret_cast<void*>(hooked_keyboard_get_device_state), &orig) && orig)
+                *outOriginal = reinterpret_cast<GetDeviceStateFn>(orig);
+        };
+
+        hookKeyboard(g_var->input.keyboard,  &g_originalKeyboardGetDeviceState);
+        hookKeyboard(g_var->input.keyboard2, &g_originalKeyboard2GetDeviceState);
+        if (g_originalKeyboard2GetDeviceState == reinterpret_cast<GetDeviceStateFn>(hooked_keyboard_get_device_state))
+            g_originalKeyboard2GetDeviceState = g_originalKeyboardGetDeviceState;
 
         g_mouseDeviceHooked = (g_originalMouseGetDeviceState != nullptr);
     }
@@ -402,6 +449,19 @@ namespace imgui_layer
 
         // Non-mouse messages (keyboard, etc.) -- always forward to ImGui.
         ImGui_ImplWin32_WndProcHandler(hwnd, msg, wParam, lParam);
+
+        // While an ImGui text field is focused, swallow the basic keyboard
+        // messages (WM_KEYDOWN..WM_UNICHAR, incl. WM_CHAR) so the native chat
+        // doesn't also capture them.  CRUCIAL: do NOT swallow the IME messages
+        // (WM_IME_* at 0x10D-0x10F and 0x281-0x28F) — they must reach
+        // DefWindowProc so input methods (Chinese IME, Vietnamese UniKey, etc.)
+        // can compose; the committed result still arrives as WM_CHAR.
+        auto& io = ImGui::GetIO();
+        if (io.WantTextInput && msg >= WM_KEYFIRST && msg <= 0x0109)
+        {
+            result = TRUE;
+            return true;
+        }
         return false;
     }
 
@@ -481,6 +541,11 @@ namespace imgui_layer
 
         ImGui_ImplWin32_Init(g_var->hwnd);
         ImGui_ImplDX9_Init(device);
+
+        // Load the Unicode chat font into the atlas before the first frame
+        // builds it (lazy-added fonts never get a glyph texture).
+        custom_chat::load_chat_font();
+
         g_imguiInitialized = true;
         reset_overlay_rects();
 
@@ -499,6 +564,10 @@ namespace imgui_layer
         ImGui_ImplDX9_Shutdown();
         ImGui_ImplWin32_Shutdown();
         ImGui::DestroyContext();
+        // The atlas (and our chat font) is owned by the context just destroyed;
+        // force load_chat_font to rebuild it into the fresh atlas on re-init.
+        g_parallelFont = nullptr;
+        g_parallelFontLoaded = false;
         g_imguiInitialized = false;
         g_device = nullptr;
         g_overlayHwnd = nullptr;
@@ -653,8 +722,8 @@ namespace imgui_layer
             }
         }
 
-        // Flush D3DX chat text before ImGui renders its draw lists so overlay
-        // panels stay above chat text.
+        // Flush the queued native-font chat text before ImGui renders, so the
+        // overlay panels stay above the chat text.
         if (!g_nativeUIHidden)
             custom_chat::flush_d3dx_text();
 
@@ -718,8 +787,8 @@ namespace imgui_layer
 
     }
 
-    DWORD WINAPI render_thread(LPVOID)
-    {
+DWORD WINAPI render_thread(LPVOID)
+{
         while (g_running)
         {
             if (!g_var->hwnd || !IsWindow(g_var->hwnd) || !g_var->camera.device)

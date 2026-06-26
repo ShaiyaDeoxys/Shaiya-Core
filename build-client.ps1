@@ -44,9 +44,10 @@ if (-not $msbuild) {
     throw 'MSBuild.exe was not found. Install Visual Studio 2022 Build Tools with the C++ workload.'
 }
 
-$msbuildTarget = 'sdev-client'
+$projects = @('sdev-client')
+$msbuildTarget = ($projects -join ';')
 if ($Target -ne 'Build') {
-    $msbuildTarget = "sdev-client:$Target"
+    $msbuildTarget = (($projects | ForEach-Object { "$_`:$Target" }) -join ';')
 }
 
 & $msbuild $solution /t:$msbuildTarget /p:Configuration=$Configuration /p:Platform=x86 /m

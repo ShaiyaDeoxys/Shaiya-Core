@@ -34,28 +34,45 @@
 //      Suppresses repeated public-channel messages after 5 copies in 10
 //      seconds. Private channels are exempt.
 //
-//   5. Duplicate collapse
+//   5. Per-sender flood guard
+//      Public channels only (Normal/Trade/Shout/Area). Catches one sender
+//      flooding with DIFFERENT messages (which the text-keyed rate limit
+//      misses). >6 messages in 5s is an offense; penalties escalate
+//      15s -> 1m -> 5m -> permanent auto-mute (added to the [MUTE] list).
+//      Escalation decays after 10 min of calm; the local player is exempt.
+//
+//   6. Duplicate collapse
 //      Consecutive identical messages are collapsed into one ring-buffer entry
 //      with an "(xN)" render annotation.
 //
-//   6. Render cap
+//   7. Render cap
 //      The overlay stores 512 messages and renders only the visible wrapped
 //      slice for each native chat panel.
 //
 // Rendering:
 //   render_ingame_chat() reads native chat metrics from the hooked chat panel
-//   object and queues text runs. flush_d3dx_text() draws those runs with the
-//   game's native ID3DXFont after ImGui has rendered, keeping text above emoji
-//   quads while preserving the native font appearance.
+//   object and queues each message's text as native ID3DXFont runs (drawn by
+//   flush_d3dx_text after ImGui, so it matches the native chat exactly and
+//   handles the game's codepage directly). Emoji/GIF tokens are drawn inline as
+//   ImGui textured quads.
 // ===========================================================================
 
 namespace custom_chat
 {
     void record_chat_type(int chatType, const char* text);
+    void clear_messages();
+    void load_chat_font();
     bool hide_native_chat_visuals();
     void render_ingame_chat();
-    void flush_d3dx_text();
     void render_options();
+
+    // Draw the chat text runs queued by render_ingame_chat with the game's
+    // native ID3DXFont. Call once per frame, after ImGui builds its draw data.
+    void flush_d3dx_text();
+
+    // Send a UTF-8 line as ordinary (white) player chat, mirroring the native
+    // normal-chat send (game.exe FUN_0047A5F0 case 0). Byte-transparent, so
+    // UTF-8 passes through intact.
 
     // Commands.
     bool mute_player(const char* name);
