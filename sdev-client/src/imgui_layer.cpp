@@ -3,14 +3,6 @@
 #include "include/custom_chat.h"
 #include "include/shaiya/RewardItemEvent.h"
 #include "include/shaiya/Roulette.h"
-#include <intrin.h>
-#include <comdef.h>
-#include <exdisp.h>
-#include <shldisp.h>
-#include <shlguid.h>
-#include <shlobj_core.h>
-
-#pragma intrinsic(_ReturnAddress)
 
 void naked_chat_add_token_filter();
 void naked_chat_balloon_text_create();
@@ -282,6 +274,69 @@ namespace imgui_layer
                    min.y + (max.y - min.y - textSize.y) * 0.5f),
             tint,
             label);
+    }
+
+    void draw_icon_button_overlay(const IconButtonOverlaySpec& spec)
+    {
+        auto& io = ImGui::GetIO();
+        if (!is_overlay_display_usable(io.DisplaySize))
+            return;
+
+        *spec.position = clamp_window_position(*spec.position, spec.size, io.DisplaySize);
+
+        ImGui::SetNextWindowPos(*spec.position, ImGuiCond_Always);
+        ImGui::SetNextWindowBgAlpha(0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        ImGui::Begin(
+            spec.windowId,
+            nullptr,
+            ImGuiWindowFlags_NoDecoration
+                | ImGuiWindowFlags_NoSavedSettings
+                | ImGuiWindowFlags_NoFocusOnAppearing
+                | ImGuiWindowFlags_NoBringToFrontOnFocus
+                | ImGuiWindowFlags_AlwaysAutoResize);
+
+        ImGui::InvisibleButton(spec.buttonId, spec.size);
+
+        auto min = ImGui::GetItemRectMin();
+        auto max = ImGui::GetItemRectMax();
+        remember_rect(*spec.rect, min, max);
+
+        auto hovered = ImGui::IsItemHovered() || is_cursor_in_rect(*spec.rect);
+        if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        {
+            *spec.toggle = !*spec.toggle;
+            if (*spec.toggle && spec.onOpen)
+                spec.onOpen();
+        }
+
+        auto drawList = ImGui::GetWindowDrawList();
+        auto* texture = spec.loadTexture ? spec.loadTexture() : nullptr;
+        auto tint = IM_COL32(255, 255, 255, hovered ? 255 : 230);
+        if (texture)
+        {
+            drawList->AddImage(reinterpret_cast<ImTextureID>(texture), min, max,
+                ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), tint);
+        }
+        else
+        {
+            draw_icon_button_fallback(drawList, min, max, tint, spec.fallbackBg, spec.fallbackLabel);
+        }
+
+        if (hovered)
+            drawList->AddRectFilled(min, max, IM_COL32(255, 255, 255, 28), 4.0f);
+
+        if (hovered)
+        {
+            ImGui::SetNextWindowPos(ImVec2(min.x - 2.0f, min.y - 24.0f), ImGuiCond_Always);
+            ImGui::BeginTooltip();
+            ImGui::TextUnformatted(*spec.toggle ? spec.tooltipHide : spec.tooltipShow);
+            ImGui::EndTooltip();
+        }
+
+        ImGui::End();
+        ImGui::PopStyleVar(2);
     }
 
     // -----------------------------------------------------------------------

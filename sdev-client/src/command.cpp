@@ -196,69 +196,67 @@ namespace
         g_chooseFontWorkerBusy.store(false);
     }
 
+    void write_advanced_bool(const char* key, bool enabled)
+    {
+        WritePrivateProfileStringA("ADVANCED", key, enabled ? "TRUE" : "FALSE", g_var->iniFileName.data());
+    }
+
+    bool read_advanced_bool(const char* key, const char* defaultValue)
+    {
+        std::string str(MAX_PATH, 0);
+        GetPrivateProfileStringA("ADVANCED", key, defaultValue, str.data(), str.size(), g_var->iniFileName.data());
+        return str.compare(0, 4, "TRUE") == 0;
+    }
+
     void apply_effects_setting(bool enabled)
     {
         g_showEffects = enabled;
         g_showMobEffects = enabled;
-        WritePrivateProfileStringA("ADVANCED", "EFFECTS", enabled ? "TRUE" : "FALSE", g_var->iniFileName.data());
+        write_advanced_bool("EFFECTS", enabled);
     }
 
     void apply_pets_setting(bool enabled)
     {
         g_showMobEffects = enabled;
         g_showPets = enabled;
-        WritePrivateProfileStringA("ADVANCED", "PETS", enabled ? "TRUE" : "FALSE", g_var->iniFileName.data());
+        write_advanced_bool("PETS", enabled);
     }
 
     void apply_wings_setting(bool enabled)
     {
         g_showWings = enabled;
-        WritePrivateProfileStringA("ADVANCED", "WINGS", enabled ? "TRUE" : "FALSE", g_var->iniFileName.data());
+        write_advanced_bool("WINGS", enabled);
     }
 
     void apply_fpsboost_setting(bool enabled)
     {
         g_fpsBoost = enabled ? 1 : 0;
-        WritePrivateProfileStringA("ADVANCED", "FPS_BOOST", enabled ? "TRUE" : "FALSE", g_var->iniFileName.data());
+        write_advanced_bool("FPS_BOOST", enabled);
     }
 
     void apply_titles_setting(bool enabled)
     {
         g_showTitles = enabled;
-        WritePrivateProfileStringA("ADVANCED", "TITLES", enabled ? "TRUE" : "FALSE", g_var->iniFileName.data());
+        write_advanced_bool("TITLES", enabled);
     }
 
     void apply_colour_setting(bool enabled)
     {
         g_showNameColors = enabled;
-        WritePrivateProfileStringA("ADVANCED", "COLOUR", enabled ? "TRUE" : "FALSE", g_var->iniFileName.data());
+        write_advanced_bool("COLOUR", enabled);
     }
 }
 
 void load_advanced_config()
 {
-    std::string str(MAX_PATH, 0);
-    GetPrivateProfileStringA("ADVANCED", "COSTUMES", "TRUE", str.data(), str.size(), g_var->iniFileName.data());
-    g_showCostumes = str.compare(0, 4, "TRUE") == 0;
-
-    GetPrivateProfileStringA("ADVANCED", "WINGS", "TRUE", str.data(), str.size(), g_var->iniFileName.data());
-    g_showWings = str.compare(0, 4, "TRUE") == 0;
-
-    GetPrivateProfileStringA("ADVANCED", "EFFECTS", "TRUE", str.data(), str.size(), g_var->iniFileName.data());
-    g_showEffects = str.compare(0, 4, "TRUE") == 0;
-
-    GetPrivateProfileStringA("ADVANCED", "PETS", "TRUE", str.data(), str.size(), g_var->iniFileName.data());
-    g_showPets = str.compare(0, 4, "TRUE") == 0;
+    g_showCostumes = read_advanced_bool("COSTUMES", "TRUE");
+    g_showWings = read_advanced_bool("WINGS", "TRUE");
+    g_showEffects = read_advanced_bool("EFFECTS", "TRUE");
+    g_showPets = read_advanced_bool("PETS", "TRUE");
     g_showMobEffects = g_showPets;
-
-    GetPrivateProfileStringA("ADVANCED", "FPS_BOOST", "FALSE", str.data(), str.size(), g_var->iniFileName.data());
-    g_fpsBoost = str.compare(0, 4, "TRUE") == 0;
-
-    GetPrivateProfileStringA("ADVANCED", "TITLES", "TRUE", str.data(), str.size(), g_var->iniFileName.data());
-    g_showTitles = str.compare(0, 4, "TRUE") == 0;
-
-    GetPrivateProfileStringA("ADVANCED", "COLOUR", "TRUE", str.data(), str.size(), g_var->iniFileName.data());
-    g_showNameColors = str.compare(0, 4, "TRUE") == 0;
+    g_fpsBoost = read_advanced_bool("FPS_BOOST", "FALSE");
+    g_showTitles = read_advanced_bool("TITLES", "TRUE");
+    g_showNameColors = read_advanced_bool("COLOUR", "TRUE");
 }
 
 int command_handler(char* text)

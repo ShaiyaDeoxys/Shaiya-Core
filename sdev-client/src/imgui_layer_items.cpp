@@ -468,6 +468,24 @@ namespace imgui_layer {
             }
             entry.loadAttempted = false;
         }
+
+        // Native item-icon textures live inside a CTexture struct populated by
+        // CTexture::CreateFromFile, which sets two COM slots (texture + surface).
+        // Release both, mirroring patch.cpp's release_texture_slots, so these
+        // don't leak on every device reset.
+        for (auto& [_, entry] : g_nativeItemIcons)
+        {
+            auto slots = reinterpret_cast<IUnknown**>(&entry.texture);
+            for (int index = 0; index < 2; ++index)
+            {
+                if (slots[index])
+                {
+                    slots[index]->Release();
+                    slots[index] = nullptr;
+                }
+            }
+            entry.loadAttempted = false;
+        }
     }
 
 } // namespace imgui_layer

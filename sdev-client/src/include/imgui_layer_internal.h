@@ -87,6 +87,8 @@ namespace imgui_layer
     constexpr auto kTeleportButtonSize = ImVec2(32.0f, 33.0f);
     constexpr auto kTeleportPanelSize = ImVec2(210.0f, 270.0f);
     constexpr const char* kIdViewEnabledKey = "ID_VIEW_ENABLED";
+    constexpr const char* kEmojiTokensEnabledKey = "EMOJI_ENABLED";
+    constexpr const char* kGifTokensEnabledKey = "GIF_ENABLED";
     constexpr DWORD kEmojiSceneGraceMs = 4000;
 
     // Game screen state — address 0x7C48F8 holds an int that tells us
@@ -105,6 +107,11 @@ namespace imgui_layer
     // -----------------------------------------------------------------------
     inline std::atomic_bool g_running = false;
     inline bool g_idViewEnabled = true;
+    // Personal, INI-persisted visibility toggles for the emoji/GIF picker
+    // and their inline rendering — a player can turn these off entirely if
+    // they don't want to see other players' emoji/GIF chat tokens.
+    inline bool g_emojiTokensEnabled = true;
+    inline bool g_gifTokensEnabled = true;
 
     // Scene stability tracking — frame debounce after screen state → in-game
     inline int      g_sceneStableFrames = 0;       // consecutive in-game frames
@@ -508,6 +515,27 @@ namespace imgui_layer
 
     // Shared helpers used across multiple files
     void draw_icon_button_fallback(ImDrawList* drawList, const ImVec2& min, const ImVec2& max, ImU32 tint, ImU32 bgColor, const char* label);
+
+    // Draggable icon-button overlay that toggles a panel. Renders the shared
+    // Begin/InvisibleButton/hover/image/tooltip scaffolding used by the
+    // roulette, settings, NPC, and teleport buttons; only the data below
+    // varies per button. `onOpen` (optional) runs when the toggle turns on.
+    struct IconButtonOverlaySpec
+    {
+        const char* windowId;
+        const char* buttonId;
+        ImVec2 size;
+        ImVec2* position;
+        RECT* rect;
+        bool* toggle;
+        LPDIRECT3DTEXTURE9 (*loadTexture)();
+        ImU32 fallbackBg;
+        const char* fallbackLabel;
+        const char* tooltipShow;
+        const char* tooltipHide;
+        void (*onOpen)();
+    };
+    void draw_icon_button_overlay(const IconButtonOverlaySpec& spec);
     bool is_emoji_transition_grace_active();
     void sync_emoji_overlay_scene_state();
     void clear_emoji_text_overlays();

@@ -1759,6 +1759,15 @@ namespace custom_chat
         draw_color_controls();
     }
 
+    // Formats a "[System] <name> <suffix>" line and pushes it into the chat
+    // ring as system feedback (chat type 24).
+    void push_mute_feedback(const char* name, const char* suffix)
+    {
+        char buf[128]{};
+        std::snprintf(buf, sizeof(buf), "[System] %s %s", name, suffix);
+        push_msg_raw(24, buf, kMsgFlagNone, 0);
+    }
+
     bool mute_player(const char* name)
     {
         if (!name || !name[0])
@@ -1774,19 +1783,14 @@ namespace custom_chat
 
         if (g_muteList.names.count(lower))
         {
-            // Already muted — notify
-            char buf[128]{};
-            std::snprintf(buf, sizeof(buf), "[System] %s is already muted.", name);
-            push_msg_raw(24, buf, kMsgFlagNone, 0);
+            push_mute_feedback(name, "is already muted.");
             return true;
         }
 
         g_muteList.names.insert(lower);
         save_mute_entry(lower, true);
 
-        char buf[128]{};
-        std::snprintf(buf, sizeof(buf), "[System] %s has been muted.", name);
-        push_msg_raw(24, buf, kMsgFlagNone, 0);
+        push_mute_feedback(name, "has been muted.");
         return true;
     }
 
@@ -1803,18 +1807,14 @@ namespace custom_chat
         auto it = g_muteList.names.find(lower);
         if (it == g_muteList.names.end())
         {
-            char buf[128]{};
-            std::snprintf(buf, sizeof(buf), "[System] %s is not muted.", name);
-            push_msg_raw(24, buf, kMsgFlagNone, 0);
+            push_mute_feedback(name, "is not muted.");
             return true;
         }
 
         g_muteList.names.erase(it);
         save_mute_entry(lower, false);
 
-        char buf[128]{};
-        std::snprintf(buf, sizeof(buf), "[System] %s has been unmuted.", name);
-        push_msg_raw(24, buf, kMsgFlagNone, 0);
+        push_mute_feedback(name, "has been unmuted.");
         return true;
     }
 

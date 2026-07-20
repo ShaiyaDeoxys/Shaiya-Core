@@ -175,6 +175,5 @@ namespace shaiya
     };
     #pragma pack(pop)
 
-    //static_assert(sizeof(CCharacter) == 0x43C);
     static_assert(sizeof(CCharacter) == 0x444);
 }

@@ -22,7 +22,7 @@
 #include "include/shaiya/CWorldMgr.h"
 #include "include/shaiya/Static.h"
 #include "include/shaiya/TargetType.h"
-#include <external/stb/stb_image.h>
+#include "include/texture_util.h"
 
 using namespace shaiya;
 
@@ -393,65 +393,7 @@ namespace
     LPDIRECT3DTEXTURE9 create_texture_from_image_memory(const void* data, std::size_t dataSize)
     {
         auto device = *reinterpret_cast<LPDIRECT3DDEVICE9*>(0x22B69A8);
-        if (!device || !data || dataSize == 0 || dataSize > INT_MAX)
-            return nullptr;
-
-        int width = 0;
-        int height = 0;
-        int channels = 0;
-        auto* pixels = stbi_load_from_memory(
-            static_cast<const stbi_uc*>(data),
-            static_cast<int>(dataSize),
-            &width,
-            &height,
-            &channels,
-            4);
-        if (!pixels || width <= 0 || height <= 0)
-        {
-            if (pixels)
-                stbi_image_free(pixels);
-            return nullptr;
-        }
-
-        LPDIRECT3DTEXTURE9 d3dTexture = nullptr;
-        if (FAILED(device->CreateTexture(
-            static_cast<UINT>(width),
-            static_cast<UINT>(height),
-            1,
-            0,
-            D3DFMT_A8R8G8B8,
-            D3DPOOL_MANAGED,
-            &d3dTexture,
-            nullptr)) || !d3dTexture)
-        {
-            stbi_image_free(pixels);
-            return nullptr;
-        }
-
-        D3DLOCKED_RECT locked{};
-        if (FAILED(d3dTexture->LockRect(0, &locked, nullptr, 0)))
-        {
-            d3dTexture->Release();
-            stbi_image_free(pixels);
-            return nullptr;
-        }
-
-        for (int y = 0; y < height; ++y)
-        {
-            auto* src = pixels + y * width * 4;
-            auto* dst = static_cast<BYTE*>(locked.pBits) + y * locked.Pitch;
-            for (int x = 0; x < width; ++x)
-            {
-                dst[x * 4 + 0] = src[x * 4 + 2];
-                dst[x * 4 + 1] = src[x * 4 + 1];
-                dst[x * 4 + 2] = src[x * 4 + 0];
-                dst[x * 4 + 3] = src[x * 4 + 3];
-            }
-        }
-
-        d3dTexture->UnlockRect(0);
-        stbi_image_free(pixels);
-        return d3dTexture;
+        return texture_util::create_from_image_memory(device, data, dataSize);
     }
 
     bool assign_texture_size(shaiya::CTexture* texture, int width, int height)
@@ -924,6 +866,17 @@ namespace
         }
     }
 
+    // -- Minimap 25 fix (raise minimap zoom-out cap from 25 to 200) --
+    unsigned u0x4D94A1 = 0x4D94A1;
+    void __declspec(naked) naked_0x4D9499()
+    {
+        __asm
+        {
+            cmp word ptr ds:[0x90E2E0], 200
+            jmp u0x4D94A1
+        }
+    }
+
 }
 
 // ===========================================================================
@@ -1051,6 +1004,8 @@ void hook::patch()
     util::write_memory((void*)0x4AC608, &kHiddenLevelUpMessageSize, sizeof(kHiddenLevelUpMessageSize));
     // Show dungeon maps
     util::write_memory((void*)0x4D9497, 0x90, 2);
+    // Minimap 25 fix (zoom-out cap 25 -> 200)
+    util::detour((void*)0x4D9499, naked_0x4D9499, 8);
     // Mob/NPC ID view
     config::install_id_view();
     // Screenshot format (.PNG)

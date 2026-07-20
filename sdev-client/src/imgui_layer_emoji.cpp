@@ -167,9 +167,9 @@ namespace imgui_layer
         return kind == VisualTokenKind::Gif ? "gif" : "emoji";
     }
 
-    bool is_visual_token_enabled(VisualTokenKind)
+    bool is_visual_token_enabled(VisualTokenKind kind)
     {
-        return true;
+        return kind == VisualTokenKind::Gif ? g_gifTokensEnabled : g_emojiTokensEnabled;
     }
 
     bool match_visual_token_text(const char* text, VisualTokenKind& kind, std::size_t& tokenLength)
@@ -1838,11 +1838,15 @@ namespace imgui_layer
             {
                 if (ImGui::BeginTabItem("Emojis"))
                 {
+                    if (ImGui::Checkbox("Show emojis", &g_emojiTokensEnabled))
+                        write_imgui_bool(kEmojiTokensEnabledKey, g_emojiTokensEnabled);
                     draw_visual_token_picker_grid(VisualTokenKind::Emoji, iconSize);
                     ImGui::EndTabItem();
                 }
                 if (ImGui::BeginTabItem("Gifs"))
                 {
+                    if (ImGui::Checkbox("Show gifs", &g_gifTokensEnabled))
+                        write_imgui_bool(kGifTokensEnabledKey, g_gifTokensEnabled);
                     draw_visual_token_picker_grid(VisualTokenKind::Gif, iconSize);
                     ImGui::EndTabItem();
                 }

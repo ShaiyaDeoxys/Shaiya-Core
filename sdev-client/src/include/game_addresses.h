@@ -16,12 +16,4 @@ namespace game_addr
 
     constexpr auto TextMeasureObject = std::uintptr_t{ 0x22B69B0 };
     constexpr auto TextMeasureWidth = std::uintptr_t{ 0x575740 };
-
-    // Runtime data roots populated by the native SData loaders.
-    constexpr auto CDataFile = std::uintptr_t{ 0x91AD64 };
-    constexpr auto NpcSkillDataFile = std::uintptr_t{ 0x91ADA8 };
-    constexpr auto NpcQuestData = std::uintptr_t{ 0x91ADEC };
-    constexpr auto CashProductTable = std::uintptr_t{ 0x90C980 };
-    constexpr auto CashProductCount = std::uintptr_t{ 0x90C984 };
-    constexpr auto GameAllocator = std::uintptr_t{ 0x632AB5 };
 }

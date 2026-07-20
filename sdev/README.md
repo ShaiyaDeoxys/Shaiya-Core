@@ -89,7 +89,7 @@ if (Configuration::RouletteEnabled)
 - Guards outgoing packet sends through helper checks.
 - Rejects malformed equipment and inventory actions before stock code can read invalid memory.
 
-### EtainShield (Anticheat) - Experimental on this Build, OFF by default
+### EtainShield (Anticheat) - Working, OFF by default
 
 Server-side anticheat module configured via `Data/EtainShield.ini`. Each protection has an independent enable/disable toggle and tunable parameters. A global master switch disables all protections at once.
 
@@ -121,7 +121,7 @@ Server-side anticheat module configured via `Data/EtainShield.ini`. Each protect
 - Prevents stat/skill reset items from clearing potential skills when reset is disabled.
 - Shortens the leader resurrection gameplay timer from 30 seconds to 5 seconds.
 - **UM chars can ress leader**: allows Ultimate Mode/Grow 3 characters to use party-leader resurrection while preserving the stock party, leader-alive, same-zone, and map validation checks.
-- Shortens logout/game-over timing to match the client countdown.
+- Shortens logout/game-over timing to match the client countdown (2 seconds).
 - Revives players with max HP, MP, and SP.
 - Allows running while stealthed.
 
@@ -229,7 +229,7 @@ Server-side anticheat module configured via `Data/EtainShield.ini`. Each protect
 - Supports ability `35` EXP stones using the EP6 ability value as a multiplier source.
 - Supports ability `70` with delayed cleanup after the skill is stopped.
 - Supports ability `87` quest/EXP-style multiplier behavior.
-- Fixes ability type `19` cooldown handling so the server uses the real skill cooldown instead of the old fixed 500 second fallback.
+- Fixes ability type `19` cooldown handling (Potential motive) so the server uses the real skill cooldown instead of the old fixed 500 second fallback.
 - Clears custom skill state on death, skill clear, and end-time handling.
 
 ### Status, Stats, And Combat
