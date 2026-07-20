@@ -41,6 +41,18 @@ namespace debug_panel
             kModuleCount
         };
 
+        shaiya::ItemInfo* find_vehicle_item_by_model(uint8_t model)
+        {
+            for (int tid = 1; tid <= 255; ++tid)
+            {
+                auto* info = shaiya::CDataFile::GetItemInfo(
+                    static_cast<int>(shaiya::ItemType::Vehicle), tid);
+                if (info && info->vehicleModel == model)
+                    return info;
+            }
+            return nullptr;
+        }
+
         bool is_admin()
         {
             return g_pPlayerData && g_pPlayerData->isAdmin;
@@ -292,16 +304,8 @@ namespace debug_panel
 
                         // Sync back to the in-memory ItemInfo so vehicle::init
                         // data and the game's item DB stay consistent.
-                        for (int tid = 1; tid <= 255; ++tid)
-                        {
-                            auto* info = CDataFile::GetItemInfo(
-                                static_cast<int>(ItemType::Vehicle), tid);
-                            if (info && info->vehicleModel == static_cast<uint8_t>(v.model))
-                            {
-                                info->reqRec = static_cast<uint16_t>(b1);
-                                break;
-                            }
-                        }
+                        if (auto* info = find_vehicle_item_by_model(static_cast<uint8_t>(v.model)))
+                            info->reqRec = static_cast<uint16_t>(b1);
                     }
 
                     // Bone2 column
@@ -313,16 +317,8 @@ namespace debug_panel
                         b2 = std::clamp(b2, 0, 255);
                         v.bone2 = b2;
 
-                        for (int tid = 1; tid <= 255; ++tid)
-                        {
-                            auto* info = CDataFile::GetItemInfo(
-                                static_cast<int>(ItemType::Vehicle), tid);
-                            if (info && info->vehicleModel == static_cast<uint8_t>(v.model))
-                            {
-                                info->reqInt = static_cast<uint16_t>(b2);
-                                break;
-                            }
-                        }
+                        if (auto* info = find_vehicle_item_by_model(static_cast<uint8_t>(v.model)))
+                            info->reqInt = static_cast<uint16_t>(b2);
                     }
 
                     // Reset button
@@ -330,16 +326,10 @@ namespace debug_panel
                     if (ImGui::SmallButton("Reset"))
                     {
                         // Re-read original values from ItemInfo
-                        for (int tid = 1; tid <= 255; ++tid)
+                        if (auto* info = find_vehicle_item_by_model(static_cast<uint8_t>(v.model)))
                         {
-                            auto* info = CDataFile::GetItemInfo(
-                                static_cast<int>(ItemType::Vehicle), tid);
-                            if (info && info->vehicleModel == static_cast<uint8_t>(v.model))
-                            {
-                                v.bone1 = info->reqRec;
-                                v.bone2 = info->reqInt;
-                                break;
-                            }
+                            v.bone1 = info->reqRec;
+                            v.bone2 = info->reqInt;
                         }
                     }
 

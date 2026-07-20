@@ -220,6 +220,8 @@ namespace imgui_layer {
         g_teleportPanelPosition.x = read_imgui_float(kTeleportPanelXKey, -1.0f);
         g_teleportPanelPosition.y = read_imgui_float(kTeleportPanelYKey, -1.0f);
         g_rewardAutoClaimEnabled = read_imgui_bool(kRewardAutoClaimKey, false);
+        g_emojiTokensEnabled = read_imgui_bool(kEmojiTokensEnabledKey, true);
+        g_gifTokensEnabled = read_imgui_bool(kGifTokensEnabledKey, true);
         g_imguiSettingsLoaded = true;
     }
 
@@ -236,6 +238,8 @@ namespace imgui_layer {
         write_imgui_float(kTeleportPanelXKey, g_teleportPanelPosition.x);
         write_imgui_float(kTeleportPanelYKey, g_teleportPanelPosition.y);
         write_imgui_bool(kRewardAutoClaimKey, g_rewardAutoClaimEnabled);
+        write_imgui_bool(kEmojiTokensEnabledKey, g_emojiTokensEnabled);
+        write_imgui_bool(kGifTokensEnabledKey, g_gifTokensEnabled);
         g_imguiSettingsDirty = false;
         g_lastPanelSaveTick = GetTickCount();
     }
@@ -363,62 +367,19 @@ namespace imgui_layer {
 
     void draw_settings_button_overlay()
     {
-        auto& io = ImGui::GetIO();
-        if (!is_overlay_display_usable(io.DisplaySize))
-            return;
-
-        auto buttonSize = kSettingsButtonSize;
-        g_settingsButtonPosition = clamp_window_position(g_settingsButtonPosition, buttonSize, io.DisplaySize);
-
-        ImGui::SetNextWindowPos(g_settingsButtonPosition, ImGuiCond_Always);
-        ImGui::SetNextWindowBgAlpha(0.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        ImGui::Begin(
-            "##settings_button_overlay",
-            nullptr,
-            ImGuiWindowFlags_NoDecoration
-                | ImGuiWindowFlags_NoSavedSettings
-                | ImGuiWindowFlags_NoFocusOnAppearing
-                | ImGuiWindowFlags_NoBringToFrontOnFocus
-                | ImGuiWindowFlags_AlwaysAutoResize);
-
-        ImGui::InvisibleButton("##settings_toggle", buttonSize);
-
-        auto min = ImGui::GetItemRectMin();
-        auto max = ImGui::GetItemRectMax();
-        remember_rect(g_settingsButtonRect, min, max);
-
-        auto hovered = ImGui::IsItemHovered() || is_cursor_in_rect(g_settingsButtonRect);
-        if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-            g_showSettingsPanel = !g_showSettingsPanel;
-
-        auto drawList = ImGui::GetWindowDrawList();
-        auto* texture = load_settings_icon_texture();
-        auto tint = IM_COL32(255, 255, 255, hovered ? 255 : 230);
-        if (texture)
-        {
-            drawList->AddImage(reinterpret_cast<ImTextureID>(texture), min, max,
-                ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), tint);
-        }
-        else
-        {
-            draw_icon_button_fallback(drawList, min, max, tint, IM_COL32(26, 31, 36, 225), "S");
-        }
-
-        if (hovered)
-            drawList->AddRectFilled(min, max, IM_COL32(255, 255, 255, 28), 4.0f);
-
-        if (hovered)
-        {
-            ImGui::SetNextWindowPos(ImVec2(min.x - 2.0f, min.y - 24.0f), ImGuiCond_Always);
-            ImGui::BeginTooltip();
-            ImGui::TextUnformatted(g_showSettingsPanel ? "Hide settings" : "Show settings");
-            ImGui::EndTooltip();
-        }
-
-        ImGui::End();
-        ImGui::PopStyleVar(2);
+        IconButtonOverlaySpec spec{};
+        spec.windowId = "##settings_button_overlay";
+        spec.buttonId = "##settings_toggle";
+        spec.size = kSettingsButtonSize;
+        spec.position = &g_settingsButtonPosition;
+        spec.rect = &g_settingsButtonRect;
+        spec.toggle = &g_showSettingsPanel;
+        spec.loadTexture = &load_settings_icon_texture;
+        spec.fallbackBg = IM_COL32(26, 31, 36, 225);
+        spec.fallbackLabel = "S";
+        spec.tooltipShow = "Show settings";
+        spec.tooltipHide = "Hide settings";
+        draw_icon_button_overlay(spec);
     }
 
     static bool draw_npc_panel_button(const char* label, int shortcutIndex)
@@ -496,62 +457,19 @@ namespace imgui_layer {
 
     void draw_npc_button_overlay()
     {
-        auto& io = ImGui::GetIO();
-        if (!is_overlay_display_usable(io.DisplaySize))
-            return;
-
-        auto buttonSize = kNpcButtonSize;
-        g_npcButtonPosition = clamp_window_position(g_npcButtonPosition, buttonSize, io.DisplaySize);
-
-        ImGui::SetNextWindowPos(g_npcButtonPosition, ImGuiCond_Always);
-        ImGui::SetNextWindowBgAlpha(0.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        ImGui::Begin(
-            "##npc_button_overlay",
-            nullptr,
-            ImGuiWindowFlags_NoDecoration
-                | ImGuiWindowFlags_NoSavedSettings
-                | ImGuiWindowFlags_NoFocusOnAppearing
-                | ImGuiWindowFlags_NoBringToFrontOnFocus
-                | ImGuiWindowFlags_AlwaysAutoResize);
-
-        ImGui::InvisibleButton("##npc_toggle", buttonSize);
-
-        auto min = ImGui::GetItemRectMin();
-        auto max = ImGui::GetItemRectMax();
-        remember_rect(g_npcButtonRect, min, max);
-
-        auto hovered = ImGui::IsItemHovered() || is_cursor_in_rect(g_npcButtonRect);
-        if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-            g_showNpcPanel = !g_showNpcPanel;
-
-        auto drawList = ImGui::GetWindowDrawList();
-        auto* texture = load_npc_icon_texture();
-        auto tint = IM_COL32(255, 255, 255, hovered ? 255 : 230);
-        if (texture)
-        {
-            drawList->AddImage(reinterpret_cast<ImTextureID>(texture), min, max,
-                ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), tint);
-        }
-        else
-        {
-            draw_icon_button_fallback(drawList, min, max, tint, IM_COL32(28, 28, 24, 225), "N");
-        }
-
-        if (hovered)
-            drawList->AddRectFilled(min, max, IM_COL32(255, 255, 255, 28), 4.0f);
-
-        if (hovered)
-        {
-            ImGui::SetNextWindowPos(ImVec2(min.x - 2.0f, min.y - 24.0f), ImGuiCond_Always);
-            ImGui::BeginTooltip();
-            ImGui::TextUnformatted(g_showNpcPanel ? "Hide NPCs" : "Show NPCs");
-            ImGui::EndTooltip();
-        }
-
-        ImGui::End();
-        ImGui::PopStyleVar(2);
+        IconButtonOverlaySpec spec{};
+        spec.windowId = "##npc_button_overlay";
+        spec.buttonId = "##npc_toggle";
+        spec.size = kNpcButtonSize;
+        spec.position = &g_npcButtonPosition;
+        spec.rect = &g_npcButtonRect;
+        spec.toggle = &g_showNpcPanel;
+        spec.loadTexture = &load_npc_icon_texture;
+        spec.fallbackBg = IM_COL32(28, 28, 24, 225);
+        spec.fallbackLabel = "N";
+        spec.tooltipShow = "Show NPCs";
+        spec.tooltipHide = "Hide NPCs";
+        draw_icon_button_overlay(spec);
     }
 
     void send_welcome_sysmsg_once()

@@ -22,13 +22,12 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <d3d9.h>
-#include <external/stb/stb_image.h>
 #include <util/util.h>
 #include "include/game_data_archive.h"
+#include "include/texture_util.h"
 #include "include/main.h"
 #include "include/shaiya/CDataFile.h"
 #include "include/shaiya/CItem.h"
-#include "include/shaiya/CPlayerData.h"
 #include "include/shaiya/ItemInfo.h"
 #include "include/shaiya/Static.h"
 using namespace shaiya;
@@ -120,58 +119,6 @@ namespace
         });
     }
 
-    // -----------------------------------------------------------------------
-    // PNG -> D3D9 texture (stb_image, RGBA -> BGRA swizzle)
-    // -----------------------------------------------------------------------
-    LPDIRECT3DTEXTURE9 create_texture_from_png(LPDIRECT3DDEVICE9 device,
-                                                const void* data, UINT dataSize)
-    {
-        if (!device || !data || dataSize == 0)
-            return nullptr;
-
-        int w = 0, h = 0, channels = 0;
-        auto* pixels = stbi_load_from_memory(
-            static_cast<const stbi_uc*>(data),
-            static_cast<int>(dataSize),
-            &w, &h, &channels, 4);
-        if (!pixels)
-            return nullptr;
-
-        LPDIRECT3DTEXTURE9 tex = nullptr;
-        if (FAILED(device->CreateTexture(
-                static_cast<UINT>(w), static_cast<UINT>(h),
-                1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, nullptr)) || !tex)
-        {
-            stbi_image_free(pixels);
-            return nullptr;
-        }
-
-        D3DLOCKED_RECT locked{};
-        if (FAILED(tex->LockRect(0, &locked, nullptr, 0)))
-        {
-            tex->Release();
-            stbi_image_free(pixels);
-            return nullptr;
-        }
-
-        for (int y = 0; y < h; ++y)
-        {
-            auto* src = pixels + y * w * 4;
-            auto* dst = static_cast<BYTE*>(locked.pBits) + y * locked.Pitch;
-            for (int x = 0; x < w; ++x)
-            {
-                dst[x * 4 + 0] = src[x * 4 + 2]; // B
-                dst[x * 4 + 1] = src[x * 4 + 1]; // G
-                dst[x * 4 + 2] = src[x * 4 + 0]; // R
-                dst[x * 4 + 3] = src[x * 4 + 3]; // A
-            }
-        }
-
-        tex->UnlockRect(0);
-        stbi_image_free(pixels);
-        return tex;
-    }
-
     void ensure_texture_loaded(int index, LPDIRECT3DDEVICE9 device)
     {
         auto& et = g_textures[index];
@@ -186,8 +133,7 @@ namespace
         if (!game_data::read_saf_file(et.sahOffset, et.sahSize, fileData))
             return;
 
-        et.texture = create_texture_from_png(device, fileData.data(),
-                                              static_cast<UINT>(fileData.size()));
+        et.texture = texture_util::create_from_image_memory(device, fileData.data(), fileData.size());
     }
 
     // -----------------------------------------------------------------------
@@ -232,89 +178,10 @@ namespace
             && kEligibleTypes[type];
     }
 
-    // -----------------------------------------------------------------------
-    // DX9 textured-quad drawing with state save/restore
-    // -----------------------------------------------------------------------
-    struct ScreenVertex
-    {
-        float x, y, z, rhw;
-        D3DCOLOR color;
-        float u, v;
-    };
-
     bool draw_texture(LPDIRECT3DTEXTURE9 tex, float x, float y, float w, float h, D3DCOLOR diffuse)
     {
         auto device = g_var ? g_var->camera.device : nullptr;
-        if (!device || !tex || w <= 0.0f || h <= 0.0f)
-            return false;
-
-        DWORD sFvf, sLit, sCull, sZ, sAB, sSrc, sDst;
-        DWORD sColOp, sColA1, sColA2, sAlpOp, sAlpA1, sAlpA2;
-        DWORD sAddrU, sAddrV;
-        LPDIRECT3DTEXTURE9 sTex = nullptr;
-
-        device->GetFVF(&sFvf);
-        device->GetTexture(0, reinterpret_cast<IDirect3DBaseTexture9**>(&sTex));
-        device->GetRenderState(D3DRS_ALPHABLENDENABLE, &sAB);
-        device->GetRenderState(D3DRS_SRCBLEND, &sSrc);
-        device->GetRenderState(D3DRS_DESTBLEND, &sDst);
-        device->GetRenderState(D3DRS_LIGHTING, &sLit);
-        device->GetRenderState(D3DRS_CULLMODE, &sCull);
-        device->GetRenderState(D3DRS_ZENABLE, &sZ);
-        device->GetSamplerState(0, D3DSAMP_ADDRESSU, &sAddrU);
-        device->GetSamplerState(0, D3DSAMP_ADDRESSV, &sAddrV);
-        device->GetTextureStageState(0, D3DTSS_COLOROP, &sColOp);
-        device->GetTextureStageState(0, D3DTSS_COLORARG1, &sColA1);
-        device->GetTextureStageState(0, D3DTSS_COLORARG2, &sColA2);
-        device->GetTextureStageState(0, D3DTSS_ALPHAOP, &sAlpOp);
-        device->GetTextureStageState(0, D3DTSS_ALPHAARG1, &sAlpA1);
-        device->GetTextureStageState(0, D3DTSS_ALPHAARG2, &sAlpA2);
-
-        ScreenVertex quad[4] = {
-            { x - 0.5f,     y - 0.5f,     0, 1, diffuse, 0, 0 },
-            { x + w - 0.5f, y - 0.5f,     0, 1, diffuse, 1, 0 },
-            { x - 0.5f,     y + h - 0.5f, 0, 1, diffuse, 0, 1 },
-            { x + w - 0.5f, y + h - 0.5f, 0, 1, diffuse, 1, 1 },
-        };
-
-        constexpr DWORD fvf = D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1;
-        device->SetTexture(0, tex);
-        device->SetFVF(fvf);
-        device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
-        device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
-        device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
-        device->SetRenderState(D3DRS_LIGHTING, FALSE);
-        device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
-        device->SetRenderState(D3DRS_ZENABLE, FALSE);
-        device->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
-        device->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
-        device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
-        device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
-        device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
-        device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
-        device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
-        device->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
-        auto hr = device->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, quad, sizeof(ScreenVertex));
-
-        device->SetTextureStageState(0, D3DTSS_ALPHAARG2, sAlpA2);
-        device->SetTextureStageState(0, D3DTSS_ALPHAARG1, sAlpA1);
-        device->SetTextureStageState(0, D3DTSS_ALPHAOP, sAlpOp);
-        device->SetTextureStageState(0, D3DTSS_COLORARG2, sColA2);
-        device->SetTextureStageState(0, D3DTSS_COLORARG1, sColA1);
-        device->SetTextureStageState(0, D3DTSS_COLOROP, sColOp);
-        device->SetSamplerState(0, D3DSAMP_ADDRESSU, sAddrU);
-        device->SetSamplerState(0, D3DSAMP_ADDRESSV, sAddrV);
-        device->SetRenderState(D3DRS_ZENABLE, sZ);
-        device->SetRenderState(D3DRS_CULLMODE, sCull);
-        device->SetRenderState(D3DRS_LIGHTING, sLit);
-        device->SetRenderState(D3DRS_DESTBLEND, sDst);
-        device->SetRenderState(D3DRS_SRCBLEND, sSrc);
-        device->SetRenderState(D3DRS_ALPHABLENDENABLE, sAB);
-        device->SetFVF(sFvf);
-        device->SetTexture(0, sTex);
-        if (sTex) sTex->Release();
-
-        return SUCCEEDED(hr);
+        return texture_util::draw_screen_quad(device, tex, x, y, w, h, diffuse);
     }
 
     // -----------------------------------------------------------------------

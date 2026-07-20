@@ -165,67 +165,21 @@ namespace imgui_layer {
 
     void draw_teleport_button_overlay()
     {
-        auto& io = ImGui::GetIO();
-        if (!is_overlay_display_usable(io.DisplaySize))
-            return;
-
-        auto buttonSize = kTeleportButtonSize;
-        g_teleportButtonPosition = clamp_window_position(g_teleportButtonPosition, buttonSize, io.DisplaySize);
-
-        ImGui::SetNextWindowPos(g_teleportButtonPosition, ImGuiCond_Always);
-        ImGui::SetNextWindowBgAlpha(0.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        ImGui::Begin(
-            "##teleport_button_overlay",
-            nullptr,
-            ImGuiWindowFlags_NoDecoration
-                | ImGuiWindowFlags_NoSavedSettings
-                | ImGuiWindowFlags_NoFocusOnAppearing
-                | ImGuiWindowFlags_NoBringToFrontOnFocus
-                | ImGuiWindowFlags_AlwaysAutoResize);
-
-        ImGui::InvisibleButton("##teleport_toggle", buttonSize);
-
-        auto min = ImGui::GetItemRectMin();
-        auto max = ImGui::GetItemRectMax();
-        remember_rect(g_teleportButtonRect, min, max);
-
-        auto hovered = ImGui::IsItemHovered() || is_cursor_in_rect(g_teleportButtonRect);
-        if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-        {
-            g_showTeleportPanel = !g_showTeleportPanel;
-            // Request fresh destination list when opening the panel
-            if (g_showTeleportPanel)
-                request_teleport_list();
-        }
-
-        auto drawList = ImGui::GetWindowDrawList();
-        auto* texture = load_teleport_icon_texture();
-        auto tint = IM_COL32(255, 255, 255, hovered ? 255 : 230);
-        if (texture)
-        {
-            drawList->AddImage(reinterpret_cast<ImTextureID>(texture), min, max,
-                ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), tint);
-        }
-        else
-        {
-            draw_icon_button_fallback(drawList, min, max, tint, IM_COL32(34, 28, 42, 225), "T");
-        }
-
-        if (hovered)
-            drawList->AddRectFilled(min, max, IM_COL32(255, 255, 255, 28), 4.0f);
-
-        if (hovered)
-        {
-            ImGui::SetNextWindowPos(ImVec2(min.x - 2.0f, min.y - 24.0f), ImGuiCond_Always);
-            ImGui::BeginTooltip();
-            ImGui::TextUnformatted(g_showTeleportPanel ? "Hide teleport" : "Show teleport");
-            ImGui::EndTooltip();
-        }
-
-        ImGui::End();
-        ImGui::PopStyleVar(2);
+        IconButtonOverlaySpec spec{};
+        spec.windowId = "##teleport_button_overlay";
+        spec.buttonId = "##teleport_toggle";
+        spec.size = kTeleportButtonSize;
+        spec.position = &g_teleportButtonPosition;
+        spec.rect = &g_teleportButtonRect;
+        spec.toggle = &g_showTeleportPanel;
+        spec.loadTexture = &load_teleport_icon_texture;
+        spec.fallbackBg = IM_COL32(34, 28, 42, 225);
+        spec.fallbackLabel = "T";
+        spec.tooltipShow = "Show teleport";
+        spec.tooltipHide = "Hide teleport";
+        // Request a fresh destination list when the panel is opened.
+        spec.onOpen = &request_teleport_list;
+        draw_icon_button_overlay(spec);
     }
 
 } // namespace imgui_layer

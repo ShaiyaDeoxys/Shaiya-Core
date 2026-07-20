@@ -62,48 +62,6 @@ namespace imgui_layer {
         release_imgui_capture();
     }
 
-    bool draw_manual_panel_button(const char* label, bool enabled, const ImVec2& size)
-    {
-        auto drawList = ImGui::GetWindowDrawList();
-        auto min = ImGui::GetCursorScreenPos();
-        auto max = ImVec2(min.x + size.x, min.y + size.y);
-
-        ImVec2 mousePos{};
-        auto hasMousePos = get_overlay_mouse_pos_raw(mousePos);
-        auto hovered = hasMousePos
-            && mousePos.x >= min.x
-            && mousePos.x < max.x
-            && mousePos.y >= min.y
-            && mousePos.y < max.y;
-
-        auto mouseDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
-        auto clicked = enabled && hovered && mouseDown && !g_rollMouseWasDown;
-        g_rollMouseWasDown = mouseDown;
-
-        auto color = IM_COL32(54, 65, 82, 235);
-        if (!enabled)
-            color = IM_COL32(38, 42, 50, 170);
-        else if (hovered && mouseDown)
-            color = IM_COL32(75, 92, 118, 245);
-        else if (hovered)
-            color = IM_COL32(64, 78, 100, 245);
-
-        drawList->AddRectFilled(min, max, color, 4.0f);
-        drawList->AddRect(min, max, enabled ? IM_COL32(118, 150, 190, 210) : IM_COL32(80, 85, 92, 150), 4.0f);
-
-        auto textSize = ImGui::CalcTextSize(label);
-        drawList->AddText(
-            ImVec2(min.x + std::max(0.0f, (size.x - textSize.x) * 0.5f), min.y + std::max(0.0f, (size.y - textSize.y) * 0.5f)),
-            enabled ? IM_COL32(245, 247, 250, 255) : IM_COL32(150, 154, 162, 220),
-            label);
-
-        ImGui::Dummy(size);
-        if (clicked)
-            release_imgui_capture();
-
-        return clicked;
-    }
-
     uint8_t roulette_item_count()
     {
         auto count = roulette_event::itemCount;
@@ -320,62 +278,19 @@ namespace imgui_layer {
 
     void draw_roulette_button_overlay()
     {
-        auto& io = ImGui::GetIO();
-        if (!is_overlay_display_usable(io.DisplaySize))
-            return;
-
-        auto buttonSize = kRouletteButtonSize;
-        g_rouletteButtonPosition = clamp_window_position(g_rouletteButtonPosition, buttonSize, io.DisplaySize);
-
-        ImGui::SetNextWindowPos(g_rouletteButtonPosition, ImGuiCond_Always);
-        ImGui::SetNextWindowBgAlpha(0.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        ImGui::Begin(
-            "##roulette_button_overlay",
-            nullptr,
-            ImGuiWindowFlags_NoDecoration
-                | ImGuiWindowFlags_NoSavedSettings
-                | ImGuiWindowFlags_NoFocusOnAppearing
-                | ImGuiWindowFlags_NoBringToFrontOnFocus
-                | ImGuiWindowFlags_AlwaysAutoResize);
-
-        ImGui::InvisibleButton("##roulette_toggle", buttonSize);
-
-        auto min = ImGui::GetItemRectMin();
-        auto max = ImGui::GetItemRectMax();
-        remember_rect(g_rouletteButtonRect, min, max);
-
-        auto hovered = ImGui::IsItemHovered() || is_cursor_in_rect(g_rouletteButtonRect);
-        if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-            g_showPanel = !g_showPanel;
-
-        auto drawList = ImGui::GetWindowDrawList();
-        auto* texture = load_roulette_icon_texture();
-        auto tint = IM_COL32(255, 255, 255, hovered ? 255 : 230);
-        if (texture)
-        {
-            drawList->AddImage(reinterpret_cast<ImTextureID>(texture), min, max,
-                ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), tint);
-        }
-        else
-        {
-            draw_icon_button_fallback(drawList, min, max, tint, IM_COL32(31, 24, 37, 225), "O");
-        }
-
-        if (hovered)
-            drawList->AddRectFilled(min, max, IM_COL32(255, 255, 255, 28), 4.0f);
-
-        if (hovered)
-        {
-            ImGui::SetNextWindowPos(ImVec2(min.x - 2.0f, min.y - 24.0f), ImGuiCond_Always);
-            ImGui::BeginTooltip();
-            ImGui::TextUnformatted(g_showPanel ? "Hide roulette" : "Show roulette");
-            ImGui::EndTooltip();
-        }
-
-        ImGui::End();
-        ImGui::PopStyleVar(2);
+        IconButtonOverlaySpec spec{};
+        spec.windowId = "##roulette_button_overlay";
+        spec.buttonId = "##roulette_toggle";
+        spec.size = kRouletteButtonSize;
+        spec.position = &g_rouletteButtonPosition;
+        spec.rect = &g_rouletteButtonRect;
+        spec.toggle = &g_showPanel;
+        spec.loadTexture = &load_roulette_icon_texture;
+        spec.fallbackBg = IM_COL32(31, 24, 37, 225);
+        spec.fallbackLabel = "O";
+        spec.tooltipShow = "Show roulette";
+        spec.tooltipHide = "Hide roulette";
+        draw_icon_button_overlay(spec);
     }
 
     void draw_panel_header(bool& panelOpen)

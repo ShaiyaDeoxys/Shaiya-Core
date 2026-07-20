@@ -1,24 +1,20 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <fstream>
 #include <memory>
 #include <algorithm>
-using std::max;
-using std::min;
 #include <cctype>
 #include <cstdint>
 #include <cstring>
 #include <windows.h>
 #include <gdiplus.h>
 #include <objidl.h>
-#include <external/stb/stb_image.h>
 #include <util/util.h>
 #include "include/game_data_archive.h"
+#include "include/texture_util.h"
 #include "include/main.h"
 #include "include/shaiya/CCharacter.h"
 #include "include/shaiya/CDataFile.h"
-#include "include/shaiya/CMonster.h"
 #include "include/shaiya/CStaticText.h"
 #include "include/shaiya/CTexture.h"
 #include "include/shaiya/ItemInfo.h"
@@ -245,47 +241,10 @@ namespace title
         if (!read_client_data_file(asset, fileData))
             return false;
 
-        int width = 0, height = 0, channels = 0;
-        auto* pixels = stbi_load_from_memory(
-            reinterpret_cast<const stbi_uc*>(fileData.data()),
-            static_cast<int>(fileData.size()),
-            &width, &height, &channels, 4);
-        if (!pixels)
+        auto* texture = texture_util::create_from_image_memory(
+            device, fileData.data(), fileData.size());
+        if (!texture)
             return false;
-
-        LPDIRECT3DTEXTURE9 texture = nullptr;
-        if (FAILED(device->CreateTexture(
-            static_cast<UINT>(width), static_cast<UINT>(height),
-            1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &texture, nullptr)) || !texture)
-        {
-            stbi_image_free(pixels);
-            return false;
-        }
-
-        D3DLOCKED_RECT locked{};
-        if (FAILED(texture->LockRect(0, &locked, nullptr, 0)))
-        {
-            texture->Release();
-            stbi_image_free(pixels);
-            return false;
-        }
-
-        // stb_image outputs RGBA, D3D9 expects BGRA (A8R8G8B8) — swizzle R<->B
-        for (int y = 0; y < height; ++y)
-        {
-            auto* src = pixels + y * width * 4;
-            auto* dst = static_cast<BYTE*>(locked.pBits) + y * locked.Pitch;
-            for (int x = 0; x < width; ++x)
-            {
-                dst[x * 4 + 0] = src[x * 4 + 2]; // B
-                dst[x * 4 + 1] = src[x * 4 + 1]; // G
-                dst[x * 4 + 2] = src[x * 4 + 0]; // R
-                dst[x * 4 + 3] = src[x * 4 + 3]; // A
-            }
-        }
-
-        texture->UnlockRect(0);
-        stbi_image_free(pixels);
 
         asset.texture.texture = texture;
         return assign_texture_size(asset.texture);
@@ -500,79 +459,13 @@ namespace title
         return &asset.frames.back().texture;
     }
 
-    struct ScreenTextureVertex
-    {
-        float x;
-        float y;
-        float z;
-        float rhw;
-        D3DCOLOR color;
-        float u;
-        float v;
-    };
-
     bool draw_screen_texture(CTexture* texture, float x, float y, float width, float height)
     {
-        auto device = g_var->camera.device;
-        if (!device || !texture || !texture->texture || width <= 0.0f || height <= 0.0f)
+        if (!texture)
             return false;
 
-        DWORD oldFvf = 0;
-        LPDIRECT3DTEXTURE9 oldTexture = nullptr;
-        DWORD oldAlphaBlend = 0;
-        DWORD oldSrcBlend = 0;
-        DWORD oldDestBlend = 0;
-        DWORD oldLighting = 0;
-        DWORD oldCullMode = 0;
-        DWORD oldZEnable = 0;
-        DWORD oldSamplerAddressU = 0;
-        DWORD oldSamplerAddressV = 0;
-
-        device->GetFVF(&oldFvf);
-        device->GetTexture(0, reinterpret_cast<IDirect3DBaseTexture9**>(&oldTexture));
-        device->GetRenderState(D3DRS_ALPHABLENDENABLE, &oldAlphaBlend);
-        device->GetRenderState(D3DRS_SRCBLEND, &oldSrcBlend);
-        device->GetRenderState(D3DRS_DESTBLEND, &oldDestBlend);
-        device->GetRenderState(D3DRS_LIGHTING, &oldLighting);
-        device->GetRenderState(D3DRS_CULLMODE, &oldCullMode);
-        device->GetRenderState(D3DRS_ZENABLE, &oldZEnable);
-        device->GetSamplerState(0, D3DSAMP_ADDRESSU, &oldSamplerAddressU);
-        device->GetSamplerState(0, D3DSAMP_ADDRESSV, &oldSamplerAddressV);
-
-        ScreenTextureVertex vertices[] = {
-            { x - 0.5f,         y - 0.5f,          0.0f, 1.0f, 0xFFFFFFFF, 0.0f, 0.0f },
-            { x + width - 0.5f, y - 0.5f,          0.0f, 1.0f, 0xFFFFFFFF, 1.0f, 0.0f },
-            { x - 0.5f,         y + height - 0.5f, 0.0f, 1.0f, 0xFFFFFFFF, 0.0f, 1.0f },
-            { x + width - 0.5f, y + height - 0.5f, 0.0f, 1.0f, 0xFFFFFFFF, 1.0f, 1.0f },
-        };
-
-        constexpr DWORD kFvf = D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1;
-        device->SetTexture(0, texture->texture);
-        device->SetFVF(kFvf);
-        device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
-        device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
-        device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
-        device->SetRenderState(D3DRS_LIGHTING, FALSE);
-        device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
-        device->SetRenderState(D3DRS_ZENABLE, FALSE);
-        device->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
-        device->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
-        auto result = device->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, vertices, sizeof(ScreenTextureVertex));
-
-        device->SetSamplerState(0, D3DSAMP_ADDRESSU, oldSamplerAddressU);
-        device->SetSamplerState(0, D3DSAMP_ADDRESSV, oldSamplerAddressV);
-        device->SetRenderState(D3DRS_ZENABLE, oldZEnable);
-        device->SetRenderState(D3DRS_CULLMODE, oldCullMode);
-        device->SetRenderState(D3DRS_LIGHTING, oldLighting);
-        device->SetRenderState(D3DRS_DESTBLEND, oldDestBlend);
-        device->SetRenderState(D3DRS_SRCBLEND, oldSrcBlend);
-        device->SetRenderState(D3DRS_ALPHABLENDENABLE, oldAlphaBlend);
-        device->SetFVF(oldFvf);
-        device->SetTexture(0, oldTexture);
-        if (oldTexture)
-            oldTexture->Release();
-
-        return SUCCEEDED(result);
+        return texture_util::draw_screen_quad(
+            g_var->camera.device, texture->texture, x, y, width, height, 0xFFFFFFFF);
     }
 
     void reset(CCharacter* user)

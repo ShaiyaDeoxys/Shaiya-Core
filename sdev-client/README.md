@@ -70,6 +70,10 @@ VOICE_CHAR=TRUE
 ; Runtime ImGui overlay state. Most values are written by dragging buttons/panels in game.
 ID_VIEW_ENABLED=TRUE
 REWARD_AUTOCLAIM=FALSE
+; Personal visibility toggles for the emoji/GIF chat picker, written by the
+; "Show emojis"/"Show gifs" checkboxes in the picker itself.
+EMOJI_ENABLED=TRUE
+GIF_ENABLED=TRUE
 ```
 
 ## Commands
@@ -92,17 +96,10 @@ Repository scope reminder: `sdev` is the game server module, and `sdev-client` i
 
 This section is the client-side feature map. Every entry is installed from `Main()` in `src/main.cpp`.
 
-### Internal Client Infrastructure
-
-- **Internal archive reader**: `src/game_data_archive.cpp` centralizes `data.sah` scanning and `data.saf` byte reads for client-side assets. Feature modules still own their file naming and folder rules, but they no longer duplicate archive parsing.
-- **Native address map**: `src/include/game_addresses.h` groups shared Game.exe addresses used by text hooks and visual chat tokens.
-- **Custom chat module**: `src/custom_chat.cpp` owns the native-anchored Core chat replacement. The GM debug panel only exposes tuning controls through `Chat options`.
-
 ### Startup, Login, And Windowing
 
 - **Updater bypass**: `ADVANCED/SKIPUPDATER=1` injects the same command-line token normally provided by `Updater.exe`, allowing direct `Game.exe` launch without changing the normal startup state machine.
 - **Login splash skip**: removes the Nexon/copyright splash and shortens the startup waits while preserving required login resource initialization.
-- **Client UI dispatch**: subclasses the game window so ImGui helpers can safely post roulette requests and chat-token inserts back through the game UI thread.
 - **Welcome message**: posts the existing `SysMsg` welcome entry after the client UI is ready. The message text remains owned by the normal `sysmsg.txt` data.
 - **Visual chat tokens**: draws an ImGui emoji button anchored to the native lower chat controls during gameplay, so it follows resolution changes and native chat resizing. The picker opens relative to that button, scans `emojiN.png` entries from `Assets/Emojis` and `gifN.gif` entries from `Assets/Gifs` in `data.sah/saf`, then inserts plain chat tokens such as `:emoji1:` or `:gif2:` into the stock textbox through the game UI thread. The picker exposes ON/OFF toggles for emojis and GIFs. GIF picker entries use lightweight static previews with a bounded resident cache, while full animation is loaded only when a GIF is rendered in the lower chat box. Emoji/GIF images render only in the lower chat box; chat bubbles (floating text above characters) strip the tokens from the visible text but do not draw images. Packets and server handling remain plain text.
 
@@ -174,10 +171,7 @@ This section is the client-side feature map. Every entry is installed from `Main
 
 - Applies camera limit from the global `g_cameraLimit` value.
 - Applies costume, pet, wing, and dungeon shadow/lag workarounds used by the current visual setup.
-
-> The custom-resolution table feature has been removed from the client. Its
-> design and runtime addresses are preserved in [`docs/resolutions.md`](docs/resolutions.md)
-> in case it needs to be reintroduced.
+- **Minimap 25 fix**: raises the minimap zoom-out cap from 25 to 200 via a detour on the native zoom comparison at `0x4D9499`.
 
 ### Discord And ImGui Overlay
 

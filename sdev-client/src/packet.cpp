@@ -14,9 +14,6 @@ using namespace shaiya;
 namespace packet
 {
     // Forward declarations
-    void scan_roulette_packets(const char* buffer, int length);
-    void scan_reward_item_packets(const char* buffer, int length);
-    void scan_teleport_packets(const char* buffer, int length);
     void handler_0x1F01(GameRewardItemGetResultOutgoing* incoming);
     void handler_0x1F03(GameRewardItemListOutgoing* incoming);
     void handler_0x1F04(GameRewardItemGetOutgoing* incoming);
@@ -194,64 +191,6 @@ namespace packet
         handler_0x1F03(&normalized);
     }
 
-    void handle_roulette_packet(const void* data, int length)
-    {
-        if (!data || length < static_cast<int>(sizeof(uint16_t)))
-            return;
-
-        auto opcode = *reinterpret_cast<const uint16_t*>(data);
-        switch (opcode)
-        {
-        case 0x834:
-            if (length >= static_cast<int>(sizeof(GameRouletteListOutgoing)))
-                handler_0x834(const_cast<GameRouletteListOutgoing*>(reinterpret_cast<const GameRouletteListOutgoing*>(data)));
-            break;
-        case 0x835:
-            if (length >= static_cast<int>(sizeof(GameRouletteSpinOutgoing)))
-                handler_0x835(const_cast<GameRouletteSpinOutgoing*>(reinterpret_cast<const GameRouletteSpinOutgoing*>(data)));
-            break;
-        case 0x836:
-            if (length >= static_cast<int>(sizeof(GameRouletteRewardOutgoing)))
-                handler_0x836(const_cast<GameRouletteRewardOutgoing*>(reinterpret_cast<const GameRouletteRewardOutgoing*>(data)));
-            break;
-        default:
-            break;
-        }
-    }
-
-    void scan_roulette_packets(const char* buffer, int length)
-    {
-        if (!buffer || length < static_cast<int>(sizeof(uint16_t)))
-            return;
-
-        for (int offset = 0; offset <= length - static_cast<int>(sizeof(uint16_t)); ++offset)
-        {
-            auto* data = buffer + offset;
-            auto remaining = length - offset;
-            auto opcode = *reinterpret_cast<const uint16_t*>(data);
-
-            if (opcode == 0x834 && remaining >= static_cast<int>(sizeof(GameRouletteListOutgoing)))
-            {
-                auto* packet = reinterpret_cast<const GameRouletteListOutgoing*>(data);
-                if (packet->itemCount <= kRouletteMaxRewards && packet->tokenType != 0)
-                    handle_roulette_packet(data, remaining);
-            }
-            else if (opcode == 0x835 && remaining >= static_cast<int>(sizeof(GameRouletteSpinOutgoing)))
-            {
-                auto* packet = reinterpret_cast<const GameRouletteSpinOutgoing*>(data);
-                if (packet->result >= GameRouletteResult::Success && packet->result <= GameRouletteResult::NotConfigured)
-                    handle_roulette_packet(data, remaining);
-            }
-            else if (opcode == 0x836 && remaining >= static_cast<int>(sizeof(GameRouletteRewardOutgoing)))
-            {
-                auto* packet = reinterpret_cast<const GameRouletteRewardOutgoing*>(data);
-                if (packet->result >= GameRouletteResult::Success && packet->result <= GameRouletteResult::NotConfigured)
-                    handle_roulette_packet(data, remaining);
-            }
-        }
-    }
-
-
     // =======================================================================
     //  Reward Item Event handlers (opcodes 0x1F01 – 0x1F06)
     // =======================================================================
@@ -337,58 +276,6 @@ namespace packet
         }
     }
 
-    void handle_reward_item_packet(const void* data, int length)
-    {
-        if (!data || length < static_cast<int>(sizeof(uint16_t)))
-            return;
-
-        auto opcode = *reinterpret_cast<const uint16_t*>(data);
-        switch (opcode)
-        {
-        case 0x1F01:
-            if (length >= static_cast<int>(sizeof(GameRewardItemGetResultOutgoing)))
-                handler_0x1F01(const_cast<GameRewardItemGetResultOutgoing*>(
-                    reinterpret_cast<const GameRewardItemGetResultOutgoing*>(data)));
-            break;
-        case 0x1F03:
-            if (length >= static_cast<int>(GameRewardItemListOutgoing::baseLength))
-                handler_0x1F03(const_cast<GameRewardItemListOutgoing*>(
-                    reinterpret_cast<const GameRewardItemListOutgoing*>(data)));
-            break;
-        case 0x1F04:
-            if (length >= static_cast<int>(sizeof(GameRewardItemGetOutgoing)))
-                handler_0x1F04(const_cast<GameRewardItemGetOutgoing*>(
-                    reinterpret_cast<const GameRewardItemGetOutgoing*>(data)));
-            break;
-        case 0x1F05:
-            if (length >= static_cast<int>(sizeof(GameRewardItemListIndexOutgoing)))
-                handler_0x1F05(const_cast<GameRewardItemListIndexOutgoing*>(
-                    reinterpret_cast<const GameRewardItemListIndexOutgoing*>(data)));
-            break;
-        case 0x1F06:
-            handler_0x1F06(nullptr);
-            break;
-        default:
-            break;
-        }
-    }
-
-    void scan_reward_item_packets(const char* buffer, int length)
-    {
-        if (!buffer || length < static_cast<int>(sizeof(uint16_t)))
-            return;
-
-        for (int offset = 0; offset <= length - static_cast<int>(sizeof(uint16_t)); ++offset)
-        {
-            auto opcode = *reinterpret_cast<const uint16_t*>(buffer + offset);
-            if (opcode >= 0x1F01 && opcode <= 0x1F06)
-            {
-                handle_reward_item_packet(buffer + offset, length - offset);
-                break;
-            }
-        }
-    }
-
     // =======================================================================
     //  Teleport handlers (opcodes 0x838 – 0x839)
     // =======================================================================
@@ -416,31 +303,6 @@ namespace packet
         teleport_event::lastMoveResultTick = GetTickCount();
     }
 
-    void handle_teleport_packet(const void* data, int length)
-    {
-        if (!data || length < static_cast<int>(sizeof(uint16_t)))
-            return;
-
-        auto opcode = *reinterpret_cast<const uint16_t*>(data);
-        switch (opcode)
-        {
-        case 0x838:
-        {
-            // Variable-length: header (opcode + count) + count * entry size
-            auto minSize = static_cast<int>(offsetof(GameTeleportListOutgoing, entries));
-            if (length >= minSize)
-                handler_0x838(reinterpret_cast<const GameTeleportListOutgoing*>(data));
-            break;
-        }
-        case 0x839:
-            if (length >= static_cast<int>(sizeof(GameTeleportMoveOutgoing)))
-                handler_0x839(reinterpret_cast<const GameTeleportMoveOutgoing*>(data));
-            break;
-        default:
-            break;
-        }
-    }
-
     void handle_teleport_dispatch(uint16_t opcode, void* packet)
     {
         switch (opcode)
@@ -458,29 +320,6 @@ namespace packet
         }
     }
 
-    void scan_teleport_packets(const char* buffer, int length)
-    {
-        if (!buffer || length < static_cast<int>(sizeof(uint16_t)))
-            return;
-
-        for (int offset = 0; offset <= length - static_cast<int>(sizeof(uint16_t)); ++offset)
-        {
-            auto opcode = *reinterpret_cast<const uint16_t*>(buffer + offset);
-            if (opcode == 0x838 || opcode == 0x839)
-            {
-                handle_teleport_packet(buffer + offset, length - offset);
-                break;
-            }
-        }
-    }
-
-    void handle_normalized_packet(void* packet)
-    {
-        auto* buf = reinterpret_cast<const char*>(packet);
-        scan_roulette_packets(buf, 0x78);
-        scan_reward_item_packets(buf, 0x78);
-        scan_teleport_packets(buf, 0x78);
-    }
 }
 
 unsigned u0x59F8AF = 0x59F8AF;
@@ -563,24 +402,6 @@ void __declspec(naked) naked_0x593D0F()
 
         _0x593D73:
         jmp u0x593D73
-    }
-}
-
-unsigned u0x59EC8E = 0x59EC8E;
-void __declspec(naked) naked_0x59EC88()
-{
-    __asm
-    {
-        pushad
-
-        push eax
-        call packet::handle_normalized_packet
-        add esp,0x4
-
-        popad
-
-        mov esi,dword ptr ds:[0x22AF6F8]
-        jmp u0x59EC8E
     }
 }
 

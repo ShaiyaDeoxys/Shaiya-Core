@@ -12,22 +12,18 @@ The Core Discord community grew from the original ShaiyaGG Discord and focuses o
 
 ## Release Status
 
-**Shaiya Core v1.3 - Stable.** This release is considered production-ready and suitable for public use on live Shaiya private servers. It builds on the v1.1 stable base and adds the client-side Core chat overlay (native-font rendering, emoji/GIF tokens, moderation) along with UI quality-of-life improvements.
+**Shaiya Core v1.4 - Stable.** This release is considered production-ready and suitable for public use on live Shaiya private servers.
 
 ## Release Notes
 
-### v1.3
+### v1.4
 
-- Core chat overlay renders messages with the game's own native chat font at the native chat coordinates, so it matches native chat exactly and shows the game's text codepage correctly (including non-ASCII characters).
-- Inline emoji/GIF chat tokens (`:emojiN:`/`:gifN:`) drawn over chat text, with an in-world picker and per-type ON/OFF toggles.
-- Chat moderation pipeline: text sanitization, per-player mute, rate limiting, and duplicate-message collapsing.
-- Client UI quality-of-life: Quick Settings, reward, roulette, teleport, and NPC shortcut panels.
-
-### v1.1
-
-- Fixes item set synergy handling in the server code.
-- Loads set bonuses from `Data/SetItem.ini` and resolves set membership through the item `Drop` field.
-- Recalculates, reapplies, and clears synergy bonuses more reliably when equipment changes, users reset stats or skills, or users leave the world.
+- Fixed a native item-icon texture leak that accumulated GPU memory on every device reset (alt-tab, resolution change).
+- Fixed the client-side minimap zoom-out cap, which was stuck at 25 due to a stale patch; it now correctly allows zooming out to 200.
+- Restored the emoji/GIF picker's per-type ON/OFF visibility toggles (previously a stub that always rendered both), now persisted to `CONFIG.INI`.
+- Removed dead code across the client module: unused native-address constants, an unreferenced ImGui helper, a superseded packet-dispatch pipeline, and unused includes.
+- Consolidated duplicated logic into shared helpers: PNG-to-D3D9 texture decoding, textured-quad drawing with render-state save/restore, ImGui panel button overlays, and INI setting read/write boilerplate.
+- No gameplay-facing behavior changes beyond the two fixes above; the rest is internal cleanup with no functional impact.
 
 ## The Basics
 
